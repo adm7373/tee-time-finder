@@ -78,6 +78,34 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Action   = ["iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy"]
         Resource = "*"
       },
+      {
+        Sid    = "LambdaAndApiGateway"
+        Effect = "Allow"
+        Action = [
+          "lambda:CreateFunction",
+          "lambda:UpdateFunctionCode",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:DeleteFunction",
+          "lambda:GetFunction",
+          "lambda:AddPermission",
+          "lambda:RemovePermission",
+          "apigateway:GET",
+          "apigateway:POST",
+          "apigateway:PATCH",
+          "apigateway:PUT",
+          "apigateway:DELETE",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "PassLambdaExecutionRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution"
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "lambda.amazonaws.com" }
+        }
+      },
     ]
   })
 }
