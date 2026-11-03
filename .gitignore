@@ -21,6 +21,7 @@ logs/
 node_modules/
 dist/
 build/
+build/lambda/
 .venv/
 venv/
 __pycache__/

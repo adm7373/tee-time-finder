@@ -18,3 +18,8 @@ output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions_terraform.arn
 }
 
+output "api_url" {
+  description = "HTTPS URL for the HTTP API."
+  value       = aws_apigatewayv2_api.http.api_endpoint
+}
+

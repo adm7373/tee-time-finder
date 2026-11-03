@@ -3,6 +3,7 @@ from fastapi import Depends, FastAPI
 from .auth import require_user
 from .config import get_settings
 from .models import SearchRequest, TeeTimeOption
+from mangum import Mangum
 
 settings = get_settings()
 app = FastAPI(title="Tee Time Finder", version="0.1.0")
@@ -23,4 +24,7 @@ def public_config() -> dict[str, str]:
 def search(request: SearchRequest, user: dict = Depends(require_user)) -> list[TeeTimeOption]:
     """Search endpoint placeholder; course adapters will be added next."""
     return []
+
+
+handler = Mangum(app)
 
