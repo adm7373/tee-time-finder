@@ -99,6 +99,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "lambda:GetFunction",
           "lambda:AddPermission",
           "lambda:RemovePermission",
+          "lambda:TagResource",
           "apigateway:GET",
           "apigateway:POST",
           "apigateway:PATCH",
