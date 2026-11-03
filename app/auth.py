@@ -48,9 +48,14 @@ def require_user(
     except (JWTError, KeyError, StopIteration, ValueError, TimeoutError, OSError):
         raise _unauthorized()
 
-    if claims.get("token_use") != "access":
-        raise _unauthorized("Cognito access token required")
-    if claims.get("client_id") != settings.cognito_app_client_id:
+    token_use = claims.get("token_use")
+    if token_use == "access" and claims.get("client_id") == settings.cognito_app_client_id:
+        return claims
+    if token_use == "id" and claims.get("aud") == settings.cognito_app_client_id:
+        return claims
+    if token_use not in {"access", "id"}:
+        raise _unauthorized("Cognito ID or access token required")
+    if claims.get("client_id") != settings.cognito_app_client_id and claims.get("aud") != settings.cognito_app_client_id:
         raise _unauthorized()
     return claims
 
