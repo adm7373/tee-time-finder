@@ -10,3 +10,9 @@ variable "project_name" {
   default     = "tee-time-finder"
 }
 
+variable "public_base_url" {
+  description = "Public HTTPS URL used by the Cognito managed login callback."
+  type        = string
+  default     = "https://uod7n5ou71.execute-api.us-east-1.amazonaws.com"
+}
+

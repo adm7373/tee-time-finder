@@ -20,10 +20,22 @@ resource "aws_cognito_user_pool_client" "web" {
 
   generate_secret = false
 
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email"]
+  supported_identity_providers         = ["COGNITO"]
+  callback_urls                        = ["${var.public_base_url}/"]
+  logout_urls                          = ["${var.public_base_url}/"]
+
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
   ]
+}
+
+resource "aws_cognito_user_pool_domain" "main" {
+  domain       = "tee-time-finder-${data.aws_caller_identity.current.account_id}"
+  user_pool_id = aws_cognito_user_pool.main.id
 }
 

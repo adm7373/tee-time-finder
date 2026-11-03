@@ -74,6 +74,34 @@ resource "aws_apigatewayv2_route" "default" {
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
+resource "aws_apigatewayv2_route" "public_root" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "public_health" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /health"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "public_config" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /config"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "public_auth_token" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "POST /auth/token"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http.id
   name        = "$default"
