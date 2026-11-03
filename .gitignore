@@ -8,6 +8,11 @@
 # Local configuration and runtime state
 .aws/
 .codex/
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+terraform.tfvars.json
 data/
 tmp/
 logs/
