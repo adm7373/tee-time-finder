@@ -32,6 +32,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
+        if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ vars.AWS_REGION }}
@@ -52,6 +53,7 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
+        if: github.event_name == 'push'
         run: >-
           terraform init -input=false
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
@@ -63,6 +65,7 @@ jobs:
 
       - name: Terraform plan
         working-directory: infra
+        if: github.event_name == 'push'
         run: terraform plan -input=false -no-color
 
   apply:
