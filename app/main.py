@@ -1,0 +1,25 @@
+from fastapi import FastAPI
+
+from .config import get_settings
+from .models import SearchRequest, TeeTimeOption
+
+settings = get_settings()
+app = FastAPI(title="Tee Time Finder", version="0.1.0")
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/config")
+def public_config() -> dict[str, str]:
+    """Return non-sensitive defaults needed by the search form."""
+    return {"default_search_zip": settings.default_search_zip}
+
+
+@app.post("/search", response_model=list[TeeTimeOption])
+def search(request: SearchRequest) -> list[TeeTimeOption]:
+    """Search endpoint placeholder; course adapters will be added next."""
+    return []
+
