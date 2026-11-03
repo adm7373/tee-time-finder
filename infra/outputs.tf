@@ -13,3 +13,8 @@ output "cognito_app_client_id" {
   value       = aws_cognito_user_pool_client.web.id
 }
 
+output "github_actions_role_arn" {
+  description = "IAM role ARN for the GitHub Actions AWS_ROLE_ARN secret."
+  value       = aws_iam_role.github_actions_terraform.arn
+}
+
