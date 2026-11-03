@@ -26,7 +26,10 @@ resource "aws_iam_role" "github_actions_terraform" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:adm7373@12490173/tee-time-finder@1443696246:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:adm7373@12490173/tee-time-finder@1443696246:ref:refs/heads/main",
+            "repo:adm7373@12490173/tee-time-finder@1443696246:environment:production",
+          ]
         }
       }
     }]
