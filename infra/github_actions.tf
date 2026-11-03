@@ -99,6 +99,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "lambda:GetFunction",
           "lambda:ListVersionsByFunction",
           "lambda:GetFunctionCodeSigningConfig",
+          "lambda:GetPolicy",
           "lambda:AddPermission",
           "lambda:RemovePermission",
           "lambda:TagResource",
