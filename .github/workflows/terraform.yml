@@ -59,6 +59,11 @@ jobs:
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
           -backend-config="region=${{ vars.AWS_REGION }}"
 
+      - name: Terraform init without backend for pull requests
+        working-directory: infra
+        if: github.event_name == 'pull_request'
+        run: terraform init -input=false -backend=false
+
       - name: Terraform validate
         working-directory: infra
         run: terraform validate
