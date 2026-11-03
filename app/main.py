@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from .auth import require_user
 from .config import get_settings
 from .models import SearchRequest, TeeTimeOption
 
@@ -19,7 +20,7 @@ def public_config() -> dict[str, str]:
 
 
 @app.post("/search", response_model=list[TeeTimeOption])
-def search(request: SearchRequest) -> list[TeeTimeOption]:
+def search(request: SearchRequest, user: dict = Depends(require_user)) -> list[TeeTimeOption]:
     """Search endpoint placeholder; course adapters will be added next."""
     return []
 

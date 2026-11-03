@@ -16,5 +16,5 @@ The initial endpoints are:
 - `GET /config` — safe client defaults, including ZIP `02169`
 - `POST /search` — search contract; returns no results until a provider adapter is added
 
-Cognito settings are configuration placeholders at this stage. The next authentication step will validate Cognito-issued JWTs at the API boundary before allowing search requests.
+Cognito settings are loaded from `.env` locally and should come from AWS Secrets Manager or Parameter Store in deployment. The `/search` endpoint requires a Cognito access token and validates its signature, issuer, expiration, token type, and app client ID. `/health` and `/config` remain public.
 
