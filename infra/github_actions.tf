@@ -83,6 +83,12 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
+        Sid      = "AttachLambdaExecutionPolicy"
+        Effect   = "Allow"
+        Action   = "iam:AttachRolePolicy"
+        Resource = "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution"
+      },
+      {
         Sid    = "LambdaAndApiGateway"
         Effect = "Allow"
         Action = [
