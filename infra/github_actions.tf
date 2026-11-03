@@ -79,7 +79,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
       {
         Sid      = "IamOidcRoleManagement"
         Effect   = "Allow"
-        Action   = ["iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies", "iam:GetRolePolicy", "iam:ListAttachedRolePolicies"]
+        Action   = ["iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies", "iam:GetRolePolicy", "iam:ListAttachedRolePolicies", "iam:TagRole"]
         Resource = "*"
       },
       {
@@ -98,6 +98,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "apigateway:PATCH",
           "apigateway:PUT",
           "apigateway:DELETE",
+          "apigateway:TagResource",
         ]
         Resource = "*"
       },
