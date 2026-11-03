@@ -66,6 +66,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "cognito-idp:CreateUserPoolClient",
           "cognito-idp:DeleteUserPoolClient",
           "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:GetUserPoolMfaConfig",
           "cognito-idp:UpdateUserPoolClient",
           "cognito-idp:ListUserPools",
           "cognito-idp:ListUserPoolClients",
@@ -75,7 +76,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
       {
         Sid      = "IamOidcRoleManagement"
         Effect   = "Allow"
-        Action   = ["iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy"]
+        Action   = ["iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies"]
         Resource = "*"
       },
       {
