@@ -73,6 +73,10 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "cognito-idp:UpdateUserPoolClient",
           "cognito-idp:ListUserPools",
           "cognito-idp:ListUserPoolClients",
+          "cognito-idp:CreateUserPoolDomain",
+          "cognito-idp:DeleteUserPoolDomain",
+          "cognito-idp:DescribeUserPoolDomain",
+          "cognito-idp:UpdateUserPoolDomain",
         ]
         Resource = "*"
       },
