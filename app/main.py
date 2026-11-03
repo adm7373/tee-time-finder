@@ -40,7 +40,7 @@ def page() -> str:
 
 
 @app.post("/auth/token")
-def exchange_code(payload: dict[str, str]) -> dict[str, str]:
+def exchange_code(payload: dict[str, str]) -> dict[str, object]:
     """Exchange a Cognito authorization code without storing credentials in the browser."""
     domain = "tee-time-finder-550968370453.auth.us-east-1.amazoncognito.com"
     client_id = settings.cognito_app_client_id
