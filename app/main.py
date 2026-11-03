@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPError, Request, urlopen
 import json
 
 from .auth import require_user
@@ -33,7 +33,7 @@ def page() -> str:
     const base=location.origin; let token=null;
     document.querySelector('#login').onclick=()=>{location.href='https://tee-time-finder-550968370453.auth.us-east-1.amazoncognito.com/login?client_id=2o1mvf7bfiumaet2rpiubo2js1&response_type=code&scope=openid+email&redirect_uri='+encodeURIComponent(base+'/')};
     const code=new URLSearchParams(location.search).get('code');
-    if(code){fetch('/auth/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,redirect_uri:base+'/'})}).then(r=>r.json()).then(x=>{token=x.access_token;document.querySelector('#login').hidden=true;document.querySelector('#search').hidden=false;history.replaceState({},'',base)})}
+    if(code){fetch('/auth/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code,redirect_uri:base+'/'})}).then(async r=>{const x=await r.json();if(!r.ok||!x.access_token)throw new Error(x.error_description||x.error||'Token exchange failed');return x}).then(x=>{token=x.access_token;document.querySelector('#login').hidden=true;document.querySelector('#search').hidden=false;history.replaceState({},'',base)}).catch(error=>{results.textContent='Sign-in could not be completed: '+error.message})}
     document.querySelector('#search').onsubmit=async e=>{e.preventDefault();const r=await fetch('/search',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({date:date.value,zip_code:zip.value,players:+players.value})});results.innerHTML=r.ok?(await r.json()).map(x=>`<div class="card"><b>${x.course_name}</b><br>${x.start_time} · ${x.players} players</div>`).join(''):'Please complete sign-in, then try again.'};
     </script></body></html>
     """
@@ -48,8 +48,12 @@ def exchange_code(payload: dict[str, str]) -> dict[str, str]:
         return {"error": "invalid_request"}
     body = urlencode({"grant_type": "authorization_code", "client_id": client_id, "code": payload["code"], "redirect_uri": payload["redirect_uri"]}).encode()
     request = Request(f"https://{domain}/oauth2/token", data=body, headers={"content-type": "application/x-www-form-urlencoded"}, method="POST")
-    with urlopen(request, timeout=10) as response:
-        return json.loads(response.read())
+    try:
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read())
+    except HTTPError as error:
+        details = json.loads(error.read())
+        return {"error": details.get("error", "token_exchange_failed"), "error_description": details.get("error_description", "Cognito rejected the authorization code")}
 
 
 @app.get("/health")
