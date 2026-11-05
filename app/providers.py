@@ -1,6 +1,9 @@
-from datetime import time
+from datetime import datetime, time, timezone
+import json
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from .models import SearchRequest, TeeTimeOption
 
@@ -218,47 +221,58 @@ class NorwoodCCProvider(SiteBookingProvider):
     Booking page: https://norwood-country-club.book.teeitup.golf/
     Platform: TeeItUp Golf (Next.js frontend backed by phx-api-be-east-1b.kenna.io).
 
-    This is an implementation template. ``fetch_availability`` needs to be
-    filled in once the TeeItUp API is understood. Until then it returns an
-    empty list.
-
-    What we know from the booking page:
-    - Backend API: https://phx-api-be-east-1b.kenna.io (Cloudflare-protected)
-    - Alias: norwood-country-club
-    - Entity ID: 54f14d710c8ad60378b03ca1
-    - Golf ID auth host: https://my.golfid.io/
-    - maxDaysOut: 14
-    - Reservation window: sunrise to sunset minus 60 minutes
-    - Address: 400 Providence Highway, Norwood, MA 02062 (~4 miles from Quincy)
-
-    Challenges:
-    - The API is behind Cloudflare and returns Swagger UI HTML for unknown paths.
-    - Tee-time data is loaded via authenticated API calls (Golf ID).
-    - Direct API calls without solving Cloudflare challenges will fail.
+    The availability endpoint is public and search-only. Booking remains
+    disabled; the response's rate IDs are intentionally not exposed yet.
     """
 
     name = "norwood-cc"
     base_url = "https://norwood-country-club.book.teeitup.golf"
+    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
+    facility_id = "5720"
     min_interval_seconds = 5.0
 
     def fetch_availability(self, request: SearchRequest) -> list[dict]:
-        # TODO: Investigate the TeeItUp API to find the endpoint that returns
-        # tee-time slots for a given date. The frontend calls
-        # https://phx-api-be-east-1b.kenna.io but that host is Cloudflare
-        # protected and returns Swagger UI HTML for undocumented paths.
-        #
-        # Example shape to return once implemented:
-        #   [{"start_time": time(7, 30), "course_name": "Norwood Country Club",
-        #     "players": 4, "distance_miles": 4.0}]
-        return []
+        query = urlencode({
+            "date": request.date.isoformat(),
+            "facilityIds": self.facility_id,
+            "returnPromotedRates": "true",
+        })
+        payload = self._fetch_json(f"{self.api_url}?{query}")
+        if not isinstance(payload, list):
+            return []
+
+        results: list[dict] = []
+        eastern = ZoneInfo("America/New_York")
+        for day in payload:
+            for tee_time in day.get("teetimes", []):
+                try:
+                    start = datetime.fromisoformat(tee_time["teetime"].replace("Z", "+00:00")).astimezone(eastern).time()
+                except (KeyError, TypeError, ValueError):
+                    continue
+                rates = tee_time.get("rates", [])
+                if not any(request.players in rate.get("allowedPlayers", []) for rate in rates):
+                    continue
+                results.append({
+                    "start_time": start,
+                    "course_name": "Norwood Country Club",
+                    "players": request.players,
+                    "distance_miles": 4.0,
+                })
+        return results
+
+    def _fetch_json(self, url: str) -> object:
+        request = Request(url, headers={"Accept": "application/json", "User-Agent": "tee-time-finder/0.1"})
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read())
 
 
 def get_search_providers() -> list[SearchProvider]:
     providers: list[SearchProvider] = [MockSearchProvider()]
-    # Add site-specific providers here as they are implemented:
+    # Norwood now has a verified public read-only availability endpoint.
+    providers.append(NorwoodCCProvider())
+    # Add other site-specific providers here as they are implemented:
     # providers.append(GraniteLinksProvider())
     # providers.append(PresidentsGCProvider())
-    # providers.append(NorwoodCCProvider())
     return providers
 
 
