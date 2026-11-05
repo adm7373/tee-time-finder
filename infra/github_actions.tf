@@ -126,10 +126,15 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         }
       },
       {
-        Sid    = "SecretsManager"
+        Sid      = "SecretsManagerCreate"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:CreateSecret"]
+        Resource = "*"
+      },
+      {
+        Sid    = "SecretsManagerManage"
         Effect = "Allow"
         Action = [
-          "secretsmanager:CreateSecret",
           "secretsmanager:DeleteSecret",
           "secretsmanager:DescribeSecret",
           "secretsmanager:UpdateSecret",
