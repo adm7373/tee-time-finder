@@ -137,6 +137,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Action = [
           "secretsmanager:DeleteSecret",
           "secretsmanager:DescribeSecret",
+          "secretsmanager:GetResourcePolicy",
           "secretsmanager:UpdateSecret",
           "secretsmanager:TagResource",
         ]
