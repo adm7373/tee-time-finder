@@ -18,6 +18,16 @@ output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions_terraform.arn
 }
 
+output "teeitup_secret_arn" {
+  description = "ARN of the TeeItUp credentials secret in AWS Secrets Manager"
+  value       = aws_secretsmanager_secret.teeitup.arn
+}
+
+output "teeitup_secret_name" {
+  description = "Name of the TeeItUp credentials secret"
+  value       = aws_secretsmanager_secret.teeitup.name
+}
+
 output "api_url" {
   description = "HTTPS URL for the HTTP API."
   value       = aws_apigatewayv2_api.http.api_endpoint

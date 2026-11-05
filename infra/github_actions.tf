@@ -125,6 +125,18 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           StringEquals = { "iam:PassedToService" = "lambda.amazonaws.com" }
         }
       },
+      {
+        Sid    = "SecretsManager"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:TagResource",
+        ]
+        Resource = aws_secretsmanager_secret.teeitup.arn
+      },
     ]
   })
 }
