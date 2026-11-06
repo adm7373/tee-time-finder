@@ -1,5 +1,6 @@
 from datetime import datetime, time, timezone
 import json
+import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -54,7 +55,6 @@ class MockSearchProvider(SearchProvider):
         ]
 
 
-
 class SiteBookingProvider(SearchProvider):
     """Base provider for a specific course booking website.
 
@@ -102,7 +102,6 @@ class SiteBookingProvider(SearchProvider):
                 return response.read().decode("utf-8")
         except Exception:
             return None
-
 
 
 class TeeItUpProvider(SearchProvider):
@@ -192,7 +191,10 @@ class TeeItUpProvider(SearchProvider):
             ctx = ssl.create_default_context()
             with urlopen(request, timeout=15, context=ctx) as response:
                 return json.loads(response.read())
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
+            )
             # Fallback for local development (Python 3.15 certificate issues)
             try:
                 ctx = ssl.create_default_context()
@@ -205,15 +207,16 @@ class TeeItUpProvider(SearchProvider):
 
     def _log(self, message: str):
         """Log a message at debug level."""
-        import logging
-        _logging = _logging.getLogger(__name__)
+        _logging = logging.getLogger(__name__)
         _logging.debug(f"TeeItUpProvider [{self.x_be_alias}]: {message}")
 
     def _log_result(self, method: str, success: bool, count: int):
         """Log fetch/search results."""
-        _logging = _logging.getLogger(__name__)
+        _logging = logging.getLogger(__name__)
         status = "success" if success else "no results"
-        _logging.info(f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})")
+        _logging.info(
+            f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})"
+        )
 
     def _fetch(self, url: str) -> str | None:
         """Fetch a URL and return its text content, or None on failure."""
@@ -266,7 +269,10 @@ class TeeItUpProvider(SearchProvider):
             ctx = ssl.create_default_context()
             with urlopen(request, timeout=15, context=ctx) as response:
                 return json.loads(response.read())
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
+            )
             # Fallback for local development (Python 3.15 certificate issues)
             try:
                 ctx = ssl.create_default_context()
@@ -299,7 +305,12 @@ class TeeItUpProvider(SearchProvider):
 
         self._log(f"fetch_availability called with url: {url}")
         payload = self._fetch_json(url)
-        self._log_result("fetch_availability", bool(payload), len(payload) if payload else 0)
+        if payload is None:
+            self._log_result("fetch_availability", False, 0)
+        elif len(payload) == 0:
+            self._log_result("fetch_availability", True, 0)
+        else:
+            self._log_result("fetch_availability", True, len(payload))
 
         seen_times: set[time] = set()
         results: list[dict] = []
@@ -312,9 +323,11 @@ class TeeItUpProvider(SearchProvider):
 
             for tee in tees:
                 try:
-                    start = datetime.fromisoformat(
-                        tee["teetime"].replace("Z", "+00:00")
-                    ).astimezone(tz).time()
+                    start = (
+                        datetime.fromisoformat(tee["teetime"].replace("Z", "+00:00"))
+                        .astimezone(tz)
+                        .time()
+                    )
 
                     earliest = request.earliest_time or time.min
                     latest = request.latest_time or time.max
@@ -442,7 +455,6 @@ class PresidentsGCProvider(SearchProvider):
         return results
 
 
-
 def get_search_providers() -> list[SearchProvider]:
     providers: list[SearchProvider] = [
         NorwoodCCProvider(),
@@ -455,5 +467,9 @@ def get_search_providers() -> list[SearchProvider]:
 
 
 def search_all(request: SearchRequest) -> list[TeeTimeOption]:
-    results = [result for provider in get_search_providers() for result in provider.search(request)]
+    results = [
+        result
+        for provider in get_search_providers()
+        for result in provider.search(request)
+    ]
     return sorted(results, key=lambda result: result.start_time)

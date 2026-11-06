@@ -17,7 +17,9 @@ def get_jwks(issuer: str) -> dict:
         return json.load(response)
 
 
-def _unauthorized(detail: str = "Invalid or missing Cognito access token") -> HTTPException:
+def _unauthorized(
+    detail: str = "Invalid or missing Cognito access token",
+) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
@@ -32,12 +34,18 @@ def require_user(
     if not credentials or credentials.scheme.lower() != "bearer":
         raise _unauthorized()
     if not settings.cognito_issuer or not settings.cognito_app_client_id:
-        raise HTTPException(status_code=503, detail="Cognito authentication is not configured")
+        raise HTTPException(
+            status_code=503, detail="Cognito authentication is not configured"
+        )
 
     try:
         token = credentials.credentials
         header = jwt.get_unverified_header(token)
-        key = next(key for key in get_jwks(settings.cognito_issuer)["keys"] if key["kid"] == header["kid"])
+        key = next(
+            key
+            for key in get_jwks(settings.cognito_issuer)["keys"]
+            if key["kid"] == header["kid"]
+        )
         claims = jwt.decode(
             token,
             key,
@@ -49,13 +57,18 @@ def require_user(
         raise _unauthorized()
 
     token_use = claims.get("token_use")
-    if token_use == "access" and claims.get("client_id") == settings.cognito_app_client_id:
+    if (
+        token_use == "access"
+        and claims.get("client_id") == settings.cognito_app_client_id
+    ):
         return claims
     if token_use == "id" and claims.get("aud") == settings.cognito_app_client_id:
         return claims
     if token_use not in {"access", "id"}:
         raise _unauthorized("Cognito ID or access token required")
-    if claims.get("client_id") != settings.cognito_app_client_id and claims.get("aud") != settings.cognito_app_client_id:
+    if (
+        claims.get("client_id") != settings.cognito_app_client_id
+        and claims.get("aud") != settings.cognito_app_client_id
+    ):
         raise _unauthorized()
     return claims
-

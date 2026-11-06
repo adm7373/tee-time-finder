@@ -15,4 +15,3 @@ variable "public_base_url" {
   type        = string
   default     = "https://uod7n5ou71.execute-api.us-east-1.amazonaws.com"
 }
-

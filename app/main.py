@@ -49,14 +49,31 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
     client_id = settings.cognito_app_client_id
     if not client_id or not payload.get("code") or not payload.get("redirect_uri"):
         return {"error": "invalid_request"}
-    body = urlencode({"grant_type": "authorization_code", "client_id": client_id, "code": payload["code"], "redirect_uri": payload["redirect_uri"]}).encode()
-    request = Request(f"https://{domain}/oauth2/token", data=body, headers={"content-type": "application/x-www-form-urlencoded"}, method="POST")
+    body = urlencode(
+        {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": payload["code"],
+            "redirect_uri": payload["redirect_uri"],
+        }
+    ).encode()
+    request = Request(
+        f"https://{domain}/oauth2/token",
+        data=body,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
     try:
         with urlopen(request, timeout=10) as response:
             return json.loads(response.read())
     except HTTPError as error:
         details = json.loads(error.read())
-        return {"error": details.get("error", "token_exchange_failed"), "error_description": details.get("error_description", "Cognito rejected the authorization code")}
+        return {
+            "error": details.get("error", "token_exchange_failed"),
+            "error_description": details.get(
+                "error_description", "Cognito rejected the authorization code"
+            ),
+        }
 
 
 @app.get("/health")
@@ -71,10 +88,11 @@ def public_config() -> dict[str, str]:
 
 
 @app.post("/search", response_model=list[TeeTimeOption])
-def search(request: SearchRequest, user: dict = Depends(require_user)) -> list[TeeTimeOption]:
+def search(
+    request: SearchRequest, user: dict = Depends(require_user)
+) -> list[TeeTimeOption]:
     """Search all configured providers; booking is intentionally disabled."""
     return search_all(request)
 
 
 handler = Mangum(app)
-

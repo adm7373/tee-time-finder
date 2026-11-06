@@ -38,4 +38,3 @@ resource "aws_cognito_user_pool_domain" "main" {
   domain       = "tee-time-finder-${data.aws_caller_identity.current.account_id}"
   user_pool_id = aws_cognito_user_pool.main.id
 }
-

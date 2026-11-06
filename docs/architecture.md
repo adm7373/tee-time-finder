@@ -22,4 +22,3 @@ The booking provider must re-check the selected slot before attempting a reserva
 ## Privacy and access
 
 The web application should be private by default, with authentication and authorization enforced before search requests are accepted. Search history and booking records, if added later, should be scoped to the owner account and should avoid storing raw provider responses when they contain personal data.
-

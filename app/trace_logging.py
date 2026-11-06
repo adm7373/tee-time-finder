@@ -81,9 +81,10 @@ def scrub_url(url):
                 for param in query.split("&"):
                     if "=" in param:
                         k, v = param.split("=", 1)
-                        if any(s in k.lower() for s in [
-                            "token", "pass", "secret", "key", "credential"
-                        ]):
+                        if any(
+                            s in k.lower()
+                            for s in ["token", "pass", "secret", "key", "credential"]
+                        ):
                             params.append(f"{k}=***SCRUBBED***")
                         else:
                             params.append(param)
@@ -137,14 +138,16 @@ class TraceReporter:
             trace["response"] = {
                 "status": e.code,
                 "headers": scrub_headers(dict(e.headers)),
-                "body_preview": self._truncate(e.read().decode("utf-8", errors="replace")),
+                "body_preview": self._truncate(
+                    e.read().decode("utf-8", errors="replace")
+                ),
             }
         except Exception as e:
             trace["response"] = {"status": "ERROR", "body_preview": str(e)}
 
         self.traces.append(trace)
         if len(self.traces) > self.max_traces:
-            self.traces = self.traces[-self.max_traces:]
+            self.traces = self.traces[-self.max_traces :]
         return trace
 
     @staticmethod
@@ -174,7 +177,10 @@ class TraceReporter:
         for i, t in enumerate(self.traces, 1):
             logger.warning(
                 "Trace %d: %s %s -> %s",
-                i, t["method"], t["url"], t.get("response", {}).get("status"),
+                i,
+                t["method"],
+                t["url"],
+                t.get("response", {}).get("status"),
             )
             for k, v in t["request"].get("headers", {}).items():
                 logger.warning("  req %s: %s", k, v)

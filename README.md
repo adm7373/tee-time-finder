@@ -41,4 +41,3 @@ Search providers should expose availability only. A future booking flow should u
 ## Deployment direction
 
 The initial design should favor low-cost AWS services and a small private surface area. Candidate components include a private web application, a lightweight scheduled/search backend, and AWS Secrets Manager or Parameter Store for sensitive configuration. The final architecture will depend on the number and type of booking sites involved.
-
