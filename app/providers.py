@@ -1,5 +1,6 @@
 from datetime import datetime, time, timezone
 import json
+import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -23,7 +24,6 @@ class SearchProvider:
 
     def search(self, request: SearchRequest) -> list[TeeTimeOption]:
         raise NotImplementedError
-
 
 
 class TeeItUpProvider(SearchProvider):
@@ -112,7 +112,10 @@ class TeeItUpProvider(SearchProvider):
             ctx = ssl.create_default_context()
             with urlopen(request, timeout=15, context=ctx) as response:
                 return json.loads(response.read())
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
+            )
             # Fallback for local development (Python 3.15 certificate issues)
             try:
                 ctx = ssl.create_default_context()
@@ -143,9 +146,17 @@ class TeeItUpProvider(SearchProvider):
         )
         url = f"{self.api_url}?{query}"
 
+        self._log(f"fetch_availability called with url: {url}")
         payload = self._fetch_json(url)
-        if not isinstance(payload, list):
+        if payload is None:
+            # API request failed (exception was logged in _fetch_json)
             return []
+        elif len(payload) == 0:
+            # API returned zero results
+            return []
+        else:
+            # API returned data with tee-times
+            pass  # continue processing below
 
         seen_times: set[time] = set()
         results: list[dict] = []
@@ -158,9 +169,11 @@ class TeeItUpProvider(SearchProvider):
 
             for tee in tees:
                 try:
-                    start = datetime.fromisoformat(
-                        tee["teetime"].replace("Z", "+00:00")
-                    ).astimezone(tz).time()
+                    start = (
+                        datetime.fromisoformat(tee["teetime"].replace("Z", "+00:00"))
+                        .astimezone(tz)
+                        .time()
+                    )
 
                     earliest = request.earliest_time or time.min
                     latest = request.latest_time or time.max
@@ -222,6 +235,7 @@ class SquirrelRunProvider(TeeItUpProvider):
     facility_id = "4328"
     x_be_alias = "squirrel-run-golf-club"
 
+
 class VillageLinksProvider(TeeItUpProvider):
     """Provider for Village Links"""
 
@@ -251,9 +265,7 @@ class BraintreeCountryClubProvider(TeeItUpProvider):
 
 
 class PresidentsGCProvider(TeeItUpProvider):
-    """Provider for Presidents Golf Course (Quincy, MA).
-
-    """
+    """Provider for Presidents Golf Course (Quincy, MA)."""
 
     facility_id = "17943"
     x_be_alias = "presidents-golf-course"
@@ -273,5 +285,9 @@ def get_search_providers() -> list[SearchProvider]:
 
 
 def search_all(request: SearchRequest) -> list[TeeTimeOption]:
-    results = [result for provider in get_search_providers() for result in provider.search(request)]
+    results = [
+        result
+        for provider in get_search_providers()
+        for result in provider.search(request)
+    ]
     return sorted(results, key=lambda result: result.start_time)
