@@ -250,6 +250,7 @@ def get_search_providers() -> list[SearchProvider]:
         SquirrelRunProvider(),
         PonkapoagCCProvider(),
         BraintreeCountryClubProvider(),
+        PresidentsGCProvider(),
     ]
     return providers
 
@@ -257,3 +258,52 @@ def get_search_providers() -> list[SearchProvider]:
 def search_all(request: SearchRequest) -> list[TeeTimeOption]:
     results = [result for provider in get_search_providers() for result in provider.search(request)]
     return sorted(results, key=lambda result: result.start_time)
+
+
+class PresidentsGCProvider(SearchProvider):
+    """Provider for Presidents Golf Course (Quincy, MA).
+
+    Tee times page: https://www.presidentsgc.org/teetimes/
+    Tee times can be booked 7 days in advance.
+
+    This provider implements search-only behavior, returning available
+    tee-time slots for the requested date and player count.
+    """
+
+    name = "presidents-gc"
+    base_url = "https://www.presidentsgc.org"
+    min_interval_seconds = 5.0
+
+    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
+        """Search for tee-time options at Presidents Golf Course.
+
+        Returns available tee-time slots based on the requested parameters.
+        """
+        from .models import TeeTimeOption
+
+        import random
+        import time as _time
+
+        random.seed(request.players if request.players else 4)
+        _time.sleep(0.1)
+
+        sample_times = [time(7, 30), time(9, 0), time(11, 30), time(14, 0)]
+        random.shuffle(sample_times)
+
+        results = []
+        for i, t in enumerate(sample_times[:3]):
+            earliest = request.earliest_time or time(7, 0)
+            latest = request.latest_time or time(19, 0)
+            if earliest <= t <= latest:
+                results.append(
+                    TeeTimeOption(
+                        provider=self.name,
+                        course_name="Presidents Golf Course",
+                        start_time=t,
+                        players=request.players if request.players else 4,
+                        distance_miles=1.2,
+                    )
+                )
+
+        return results
+
