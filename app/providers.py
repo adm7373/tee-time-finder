@@ -1,10 +1,11 @@
-from datetime import datetime, time, timezone
-import json
+from datetime import time, datetime
+import time as _time
 import logging
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
+import ssl
+import json
 
 from .models import SearchRequest, TeeTimeOption
 
@@ -40,7 +41,7 @@ class TeeItUpProvider(SearchProvider):
     - Parses tee-time slots from the response
     """
 
-    #: API endpoint for tee times, e.g. "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
+    #: API endpoint for tee times
     api_url: str = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
 
     #: Facility ID for the course, e.g. "5720"
@@ -56,7 +57,7 @@ class TeeItUpProvider(SearchProvider):
     def __init__(self, **kwargs):
         """Initialize TeeItUpProvider and compute base_url."""
         super().__init__(**kwargs)
-        # Compute base_url from x_be_alias: "https://{x_be_alias}.book.teeitup.golf"
+        # Compute base_url from x_be_alias
         if self.x_be_alias:
             self.base_url = f"https://{self.x_be_alias}.book.teeitup.golf"
         else:
@@ -64,7 +65,6 @@ class TeeItUpProvider(SearchProvider):
 
     def _fetch(self, url: str) -> str | None:
         """Fetch a URL and return its text content, or None on failure."""
-        import time as _time
 
         now = _time.time()
         elapsed = now - self._last_request_time
@@ -76,7 +76,7 @@ class TeeItUpProvider(SearchProvider):
             req = Request(
                 url,
                 headers={
-                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",
+                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",  # noqa: E501
                 },
             )
             with urlopen(req, timeout=15) as response:
@@ -90,9 +90,6 @@ class TeeItUpProvider(SearchProvider):
         Includes the ``x-be-alias`` header and a standard User-Agent.
         Handles SSL certificate issues gracefully for local development.
         """
-        import ssl
-        import json
-        import time as _time
 
         now = _time.time()
         elapsed = now - self._last_request_time
@@ -135,7 +132,9 @@ class TeeItUpProvider(SearchProvider):
         """Log fetch/search results."""
         _logging = logging.getLogger(__name__)
         status = "success" if success else "no results"
-        _logging.info(f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})")
+        _logging.info(
+            f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})"  # noqa: E501
+        )
 
     def fetch_availability(self, request: SearchRequest) -> list[dict]:
         """Fetch availability from the TeeItUp API for this course.
@@ -143,8 +142,6 @@ class TeeItUpProvider(SearchProvider):
         Constructs the API request with the facility ID and current date,
         then returns parsed tee-time slots.
         """
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo
 
         tz = ZoneInfo("America/New_York")
         current = datetime.now(tz).date()
@@ -181,7 +178,9 @@ class TeeItUpProvider(SearchProvider):
             for tee in tees:
                 try:
                     start = (
-                        datetime.fromisoformat(tee["teetime"].replace("Z", "+00:00"))
+                        datetime.fromisoformat(
+                            tee["teetime"].replace("Z", "+00:00")
+                        )  # noqa: E501
                         .astimezone(tz)
                         .time()
                     )
@@ -190,7 +189,9 @@ class TeeItUpProvider(SearchProvider):
                     latest = request.latest_time or time.max
                     if earliest <= start <= latest:
                         for rate in tee.get("rates", []):
-                            if request.players in rate.get("allowedPlayers", []):
+                            if request.players in rate.get(
+                                "allowedPlayers", []
+                            ):  # noqa: E501
                                 if start not in seen_times:
                                     seen_times.add(start)
                                     results.append(
@@ -213,7 +214,6 @@ class TeeItUpProvider(SearchProvider):
         For TeeItUp providers, search returns tee-time options fetched
         from the availability API. This maintains search-focused behavior.
         """
-        from .models import TeeTimeOption
 
         availability = self.fetch_availability(request)
         options = []
