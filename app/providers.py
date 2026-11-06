@@ -197,7 +197,7 @@ class TeeItUpProvider(SearchProvider):
                                     results.append(
                                         {
                                             "start_time": start,
-                                            "course_name": self.name,
+                                            "course_name": self.x_be_alias,
                                             "players": request.players,
                                             "distance_miles": 4.0,
                                         }
