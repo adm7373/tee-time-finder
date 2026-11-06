@@ -1,6 +1,5 @@
 from datetime import datetime, time, timezone
 import json
-import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -17,8 +16,6 @@ class SearchProvider:
     configured so it can be skipped without failing the whole search.
     """
 
-    name = "mock"
-
     @classmethod
     def is_configured(cls) -> bool:
         """Return True if this provider has everything it needs to run."""
@@ -27,81 +24,6 @@ class SearchProvider:
     def search(self, request: SearchRequest) -> list[TeeTimeOption]:
         raise NotImplementedError
 
-
-class MockSearchProvider(SearchProvider):
-    """Deterministic sample provider for local development and the Quincy area."""
-
-    name = "mock"
-
-    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
-        candidates = [
-            ("Quincy Municipal Golf Course", time(7, 30), 3.2),
-            ("Granite Links Golf Club", time(9, 10), 8.7),
-            ("George Wright Golf Course", time(11, 45), 16.4),
-        ]
-        earliest = request.earliest_time or time.min
-        latest = request.latest_time or time.max
-        return [
-            TeeTimeOption(
-                provider=self.name,
-                course_name=course,
-                start_time=start,
-                players=request.players,
-                distance_miles=distance,
-                booking_enabled=False,
-            )
-            for course, start, distance in candidates
-            if earliest <= start <= latest and distance <= request.radius_miles
-        ]
-
-
-class SiteBookingProvider(SearchProvider):
-    """Base provider for a specific course booking website.
-
-    Subclasses implement ``fetch_availability(request)`` to scrape or query a
-    specific booking site and return raw tee-time slots. The base class handles
-    time-window filtering and TeeTimeOption construction.
-
-    Project boundaries respected by all subclasses:
-    - Never store credentials, payment data, or customer personal information.
-    - Respect the site's robots.txt, rate limits, and terms of service.
-    - Search is separate from booking: results always have booking_enabled=False.
-    - Fail closed: network or parse errors return an empty list, never an exception.
-    """
-
-    #: Base URL of the booking site, e.g. "https://www.example-course.com"
-    base_url: str = ""
-
-    #: Human-readable name shown in results.
-    name: str = "site"
-
-    #: Minimum seconds between requests to this site (rate limiting).
-    min_interval_seconds: float = 2.0
-
-    _last_request_time: float = 0.0
-
-    def _fetch(self, url: str) -> str | None:
-        """Fetch a URL and return its text content, or None on failure."""
-        import logging as _logging
-        import time as _time
-
-        now = _time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < 2.0:
-            _time.sleep(2.0 - elapsed)
-        self._last_request_time = _time.time()
-
-        try:
-            req = Request(
-                url,
-                headers={
-                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",
-                },
-            )
-            with urlopen(req, timeout=15) as response:
-                return response.read().decode("utf-8")
-        except Exception:
-            return None
 
 
 class TeeItUpProvider(SearchProvider):
@@ -119,7 +41,7 @@ class TeeItUpProvider(SearchProvider):
     """
 
     #: API endpoint for tee times, e.g. "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
-    api_url: str = ""
+    api_url: str = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
 
     #: Facility ID for the course, e.g. "5720"
     facility_id: str = ""
@@ -142,13 +64,12 @@ class TeeItUpProvider(SearchProvider):
 
     def _fetch(self, url: str) -> str | None:
         """Fetch a URL and return its text content, or None on failure."""
-        import logging as _logging
         import time as _time
 
         now = _time.time()
         elapsed = now - self._last_request_time
-        if elapsed < 2.0:
-            _time.sleep(2.0 - elapsed)
+        if elapsed < self.min_interval_seconds:
+            _time.sleep(self.min_interval_seconds - elapsed)
         self._last_request_time = _time.time()
 
         try:
@@ -175,8 +96,8 @@ class TeeItUpProvider(SearchProvider):
 
         now = _time.time()
         elapsed = now - self._last_request_time
-        if elapsed < 2.0:
-            _time.sleep(2.0 - elapsed)
+        if elapsed < self.min_interval_seconds:
+            _time.sleep(self.min_interval_seconds - elapsed)
         self._last_request_time = _time.time()
 
         request = Request(
@@ -191,88 +112,7 @@ class TeeItUpProvider(SearchProvider):
             ctx = ssl.create_default_context()
             with urlopen(request, timeout=15, context=ctx) as response:
                 return json.loads(response.read())
-        except Exception as e:
-            logging.getLogger(__name__).error(
-                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
-            )
-            # Fallback for local development (Python 3.15 certificate issues)
-            try:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                with urlopen(request, timeout=15, context=ctx) as response:
-                    return json.loads(response.read())
-            except Exception:
-                return None
-
-    def _log(self, message: str):
-        """Log a message at debug level."""
-        _logging = logging.getLogger(__name__)
-        _logging.debug(f"TeeItUpProvider [{self.x_be_alias}]: {message}")
-
-    def _log_result(self, method: str, success: bool, count: int):
-        """Log fetch/search results."""
-        _logging = logging.getLogger(__name__)
-        status = "success" if success else "no results"
-        _logging.info(
-            f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})"
-        )
-
-    def _fetch(self, url: str) -> str | None:
-        """Fetch a URL and return its text content, or None on failure."""
-        import logging as _logging2
-        import time as _time2
-
-        now = _time2.time()
-        elapsed = now - self._last_request_time
-        if elapsed < 2.0:
-            _time2.sleep(2.0 - elapsed)
-        self._last_request_time = _time2.time()
-
-        try:
-            req = Request(
-                url,
-                headers={
-                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",
-                },
-            )
-            with urlopen(req, timeout=15) as response:
-                return response.read().decode("utf-8")
         except Exception:
-            return None
-
-    def _fetch_json(self, url: str) -> object:
-        """Fetch JSON from a URL with TeeItUp headers.
-
-        Includes the ``x-be-alias`` header and a standard User-Agent.
-        Handles SSL certificate issues gracefully for local development.
-        """
-        import ssl
-        import json
-        import time as _time
-
-        now = _time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < 2.0:
-            _time.sleep(2.0 - elapsed)
-        self._last_request_time = _time.time()
-
-        request = Request(
-            url,
-            headers={
-                "Accept": "application/json",
-                "x-be-alias": self.x_be_alias,
-                "User-Agent": "tee-time-finder/0.1",
-            },
-        )
-        try:
-            ctx = ssl.create_default_context()
-            with urlopen(request, timeout=15, context=ctx) as response:
-                return json.loads(response.read())
-        except Exception as e:
-            logging.getLogger(__name__).error(
-                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
-            )
             # Fallback for local development (Python 3.15 certificate issues)
             try:
                 ctx = ssl.create_default_context()
@@ -303,14 +143,9 @@ class TeeItUpProvider(SearchProvider):
         )
         url = f"{self.api_url}?{query}"
 
-        self._log(f"fetch_availability called with url: {url}")
         payload = self._fetch_json(url)
-        if payload is None:
-            self._log_result("fetch_availability", False, 0)
-        elif len(payload) == 0:
-            self._log_result("fetch_availability", True, 0)
-        else:
-            self._log_result("fetch_availability", True, len(payload))
+        if not isinstance(payload, list):
+            return []
 
         seen_times: set[time] = set()
         results: list[dict] = []
@@ -323,11 +158,9 @@ class TeeItUpProvider(SearchProvider):
 
             for tee in tees:
                 try:
-                    start = (
-                        datetime.fromisoformat(tee["teetime"].replace("Z", "+00:00"))
-                        .astimezone(tz)
-                        .time()
-                    )
+                    start = datetime.fromisoformat(
+                        tee["teetime"].replace("Z", "+00:00")
+                    ).astimezone(tz).time()
 
                     earliest = request.earliest_time or time.min
                     latest = request.latest_time or time.max
@@ -361,8 +194,6 @@ class TeeItUpProvider(SearchProvider):
         availability = self.fetch_availability(request)
         options = []
 
-        self._log_result("search", bool(availability), len(availability))
-
         for item in availability:
             options.append(
                 TeeTimeOption(
@@ -381,8 +212,6 @@ class TeeItUpProvider(SearchProvider):
 class NorwoodCCProvider(TeeItUpProvider):
     """Provider for Norwood Country Club (Norwood, MA)."""
 
-    name = "norwood-cc"
-    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "5720"
     x_be_alias = "norwood-country-club"
 
@@ -390,76 +219,53 @@ class NorwoodCCProvider(TeeItUpProvider):
 class SquirrelRunProvider(TeeItUpProvider):
     """Provider for Squirrel Run Golf Course."""
 
-    name = "squirrel-run"
-    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
-    facility_id = "3196"
-    x_be_alias = "squirrel-run"
+    facility_id = "4328"
+    x_be_alias = "squirrel-run-golf-club"
+
+class VillageLinksProvider(TeeItUpProvider):
+    """Provider for Village Links"""
+
+    facility_id = "4329"
+    x_be_alias = "village-links-golf-club"
 
 
 class PonkapoagCCProvider(TeeItUpProvider):
     """Provider for Ponkapoag Country Club."""
 
-    name = "ponkapoag-cc"
-    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
-    facility_id = "4068"
-    x_be_alias = "ponkapoag-cc"
+    facility_id = "17927"
+    x_be_alias = "ponkapoag-golf-course"
+
+
+class PonkapoagCC2Provider(TeeItUpProvider):
+    """Provider for Ponkapoag Country Club."""
+
+    facility_id = "17927"
+    x_be_alias = "ponkapoag-golf-course-2"
 
 
 class BraintreeCountryClubProvider(TeeItUpProvider):
     """Provider for Braintree Country Club."""
 
-    name = "braintree-cc"
-    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
-    facility_id = "5024"
-    x_be_alias = "braintree-cc"
+    facility_id = "16026"
+    x_be_alias = "braintree-municipal-golf-course"
 
 
-class PresidentsGCProvider(SearchProvider):
-    """Provider for Presidents Golf Course (Quincy, MA)."""
+class PresidentsGCProvider(TeeItUpProvider):
+    """Provider for Presidents Golf Course (Quincy, MA).
 
-    name = "presidents-gc"
-    base_url = "https://www.presidentsgc.org"
-    min_interval_seconds = 5.0
+    """
 
-    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
-        """Search for tee-time options at Presidents Golf Course.
-
-        Returns available tee-time slots based on the requested parameters.
-        """
-        from .models import TeeTimeOption
-
-        import random
-        import time as _time
-
-        random.seed(request.players if request.players else 4)
-        _time.sleep(0.1)
-
-        sample_times = [time(7, 30), time(9, 0), time(11, 30), time(14, 0)]
-        random.shuffle(sample_times)
-
-        results = []
-        for i, t in enumerate(sample_times[:3]):
-            earliest = request.earliest_time or time(7, 0)
-            latest = request.latest_time or time(19, 0)
-            if earliest <= t <= latest:
-                results.append(
-                    TeeTimeOption(
-                        provider=self.name,
-                        course_name="Presidents Golf Course",
-                        start_time=t,
-                        players=request.players if request.players else 4,
-                        distance_miles=1.2,
-                    )
-                )
-
-        return results
+    facility_id = "17943"
+    x_be_alias = "presidents-golf-course"
 
 
 def get_search_providers() -> list[SearchProvider]:
     providers: list[SearchProvider] = [
         NorwoodCCProvider(),
         SquirrelRunProvider(),
+        VillageLinksProvider(),
         PonkapoagCCProvider(),
+        PonkapoagCC2Provider(),
         BraintreeCountryClubProvider(),
         PresidentsGCProvider(),
     ]
@@ -467,9 +273,5 @@ def get_search_providers() -> list[SearchProvider]:
 
 
 def search_all(request: SearchRequest) -> list[TeeTimeOption]:
-    results = [
-        result
-        for provider in get_search_providers()
-        for result in provider.search(request)
-    ]
+    results = [result for provider in get_search_providers() for result in provider.search(request)]
     return sorted(results, key=lambda result: result.start_time)
