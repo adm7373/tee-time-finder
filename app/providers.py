@@ -250,7 +250,6 @@ def get_search_providers() -> list[SearchProvider]:
         SquirrelRunProvider(),
         PonkapoagCCProvider(),
         BraintreeCountryClubProvider(),
-        PresidentsGCProvider(),
     ]
     return providers
 
