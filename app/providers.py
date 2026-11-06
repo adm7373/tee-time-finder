@@ -27,84 +27,7 @@ class SearchProvider:
         raise NotImplementedError
 
 
-class MockSearchProvider(SearchProvider):
-    """Deterministic sample provider for local development and the Quincy area."""
-
-    name = "mock"
-
-    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
-        candidates = [
-            ("Quincy Municipal Golf Course", time(7, 30), 3.2),
-            ("Granite Links Golf Club", time(9, 10), 8.7),
-            ("George Wright Golf Course", time(11, 45), 16.4),
-        ]
-        earliest = request.earliest_time or time.min
-        latest = request.latest_time or time.max
-        return [
-            TeeTimeOption(
-                provider=self.name,
-                course_name=course,
-                start_time=start,
-                players=request.players,
-                distance_miles=distance,
-                booking_enabled=False,
-            )
-            for course, start, distance in candidates
-            if earliest <= start <= latest and distance <= request.radius_miles
-        ]
-
-
-
-class SiteBookingProvider(SearchProvider):
-    """Base provider for a specific course booking website.
-
-    Subclasses implement ``fetch_availability(request)`` to scrape or query a
-    specific booking site and return raw tee-time slots. The base class handles
-    time-window filtering and TeeTimeOption construction.
-
-    Project boundaries respected by all subclasses:
-    - Never store credentials, payment data, or customer personal information.
-    - Respect the site's robots.txt, rate limits, and terms of service.
-    - Search is separate from booking: results always have booking_enabled=False.
-    - Fail closed: network or parse errors return an empty list, never an exception.
-    """
-
-    #: Base URL of the booking site, e.g. "https://www.example-course.com"
-    base_url: str = ""
-
-    #: Human-readable name shown in results.
-    name: str = "site"
-
-    #: Minimum seconds between requests to this site (rate limiting).
-    min_interval_seconds: float = 2.0
-
-    _last_request_time: float = 0.0
-
-    def _fetch(self, url: str) -> str | None:
-        """Fetch a URL and return its text content, or None on failure."""
-        import time as _time
-
-        now = _time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < self.min_interval_seconds:
-            _time.sleep(self.min_interval_seconds - elapsed)
-        self._last_request_time = _time.time()
-
-        try:
-            req = Request(
-                url,
-                headers={
-                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",
-                },
-            )
-            with urlopen(req, timeout=15) as response:
-                return response.read().decode("utf-8")
-        except Exception:
-            return None
-
-
-
-class TeeItUpProvider(SiteBookingProvider):
+class TeeItUpProvider(SearchProvider):
     """Base provider for courses using TeeItUp for booking.
 
     Courses using TeeItUp booking system should subclass this and set the
@@ -254,6 +177,31 @@ class TeeItUpProvider(SiteBookingProvider):
 
         return results
 
+    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
+        """Search for tee-time options.
+
+        For TeeItUp providers, search returns tee-time options fetched
+        from the availability API. This maintains search-focused behavior.
+        """
+        from .models import TeeTimeOption
+
+        availability = self.fetch_availability(request)
+        options = []
+
+        for item in availability:
+            options.append(
+                TeeTimeOption(
+                    provider=self.name,
+                    course_name=item["course_name"],
+                    start_time=item["start_time"],
+                    players=item["players"],
+                    distance_miles=item["distance_miles"],
+                    # booking_enabled removed - search-focused
+                )
+            )
+
+        return options
+
 
 class NorwoodCCProvider(TeeItUpProvider):
     """Provider for Norwood Country Club (Norwood, MA)."""
@@ -263,10 +211,6 @@ class NorwoodCCProvider(TeeItUpProvider):
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "5720"
     x_be_alias = "norwood-country-club"
-
-
-
-
 
 
 class SquirrelRunProvider(TeeItUpProvider):
@@ -279,7 +223,6 @@ class SquirrelRunProvider(TeeItUpProvider):
     x_be_alias = "squirrel-run"
 
 
-
 class PonkapoagCCProvider(TeeItUpProvider):
     """Provider for Ponkapoag Country Club."""
 
@@ -288,7 +231,6 @@ class PonkapoagCCProvider(TeeItUpProvider):
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "4068"
     x_be_alias = "ponkapoag-cc"
-
 
 
 class BraintreeCountryClubProvider(TeeItUpProvider):
@@ -301,56 +243,14 @@ class BraintreeCountryClubProvider(TeeItUpProvider):
     x_be_alias = "braintree-cc"
 
 
-class GraniteLinksProvider(SiteBookingProvider):
-    """Example provider for Granite Links Golf Club (Quincy, MA)."""
-
-    name = "granite-links"
-    base_url = "https://www.granitelinks.com"
-    min_interval_seconds = 5.0
-
-    def fetch_availability(self, request: SearchRequest) -> list[dict]:
-        # TODO: Investigate Northstar Technologies booking endpoint for
-        # Granite Links. The public page at /reserve-a-tee-time loads an
-        # iframe; find the underlying API or form submission that returns
-        # tee-time slots for the requested date.
-        #         # Example shape to return once implemented:
-        #   [{"start_time": time(7, 30), "course_name": "Granite Links Golf Club",
-        #     "players": 4, "distance_miles": 8.7}]
-        return []
-
-
-
-class PresidentsGCProvider(SiteBookingProvider):
-    """Example provider for Presidents Golf Course (Quincy, MA)."""
-
-    name = "presidents-gc"
-    base_url = "https://www.presidentsgc.org"
-    min_interval_seconds = 5.0
-
-    def fetch_availability(self, request: SearchRequest) -> list[dict]:
-        # TODO: Investigate the booking system behind
-        # https://www.presidentsgc.org/teetimes/. Determine whether tee-time
-        # availability is exposed via an embedded widget, iframe, or direct
-        # form submission, then parse the slots here.
-        #         # Example shape to return once implemented:
-        #   [{"start_time": time(8, 0), "course_name": "Presidents Golf Course",
-        #     "players": 2, "distance_miles": 1.2}]
-        return []
-
-
 
 def get_search_providers() -> list[SearchProvider]:
-    providers: list[SearchProvider] = [MockSearchProvider()]
-    # Norwood now has a verified public read-only availability endpoint.
-    providers.append(NorwoodCCProvider())
-    providers.append(SquirrelRunProvider())
-    providers.append(PonkapoagCCProvider())
-    providers.append(BraintreeCountryClubProvider())
-    # Add other TeeItUp-based providers here as they are implemented:
-    # providers.append(AnotherTeeItUpProvider())
-    # Add other site-specific providers here as they are implemented:
-    # providers.append(GraniteLinksProvider())
-    # providers.append(PresidentsGCProvider())
+    providers: list[SearchProvider] = [
+        NorwoodCCProvider(),
+        SquirrelRunProvider(),
+        PonkapoagCCProvider(),
+        BraintreeCountryClubProvider(),
+    ]
     return providers
 
 

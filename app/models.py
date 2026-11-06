@@ -1,6 +1,5 @@
 from datetime import date, time
 from enum import StrEnum
-
 from pydantic import BaseModel, Field
 
 
@@ -19,35 +18,14 @@ class TeeTimeOption(BaseModel):
     start_time: time
     players: int
     distance_miles: float
-    booking_enabled: bool = False
 
 
-class BookingStatus(StrEnum):
+class StrEnum(StrEnum):
     available = "available"
     booking_requested = "booking_requested"
     confirmed = "confirmed"
     failed = "failed"
 
 
-class BookingRequest(BaseModel):
-    """Reference to a selected tee-time slot plus player details.
-
-    Never contains passwords, session cookies, or payment credentials.
-    """
-
-    provider: str
-    course_name: str
-    start_time: time
-    players: int = Field(default=2, ge=1, le=8)
-
-
-class BookingResult(BaseModel):
-    """Outcome of a booking attempt, without sensitive auth material."""
-
-    provider: str
-    course_name: str
-    start_time: time
-    booking_reference: str | None = None
-    status: BookingStatus
-    detail: str | None = None
-
+# Booking concept removed - these classes were related to booking operations
+# and are kept only if needed for other functionality
