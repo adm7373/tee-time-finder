@@ -9,12 +9,6 @@ class Settings(BaseSettings):
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
 
-    @property
-    def cognito_issuer(self) -> str | None:
-        if not self.cognito_user_pool_id:
-            return None
-        return f"https://cognito-idp.{self.cognito_region}.amazonaws.com/{self.cognito_user_pool_id}"
-
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
