@@ -126,6 +126,17 @@ class TeeItUpProvider(SearchProvider):
             except Exception:
                 return None
 
+    def _log(self, message: str):
+        """Log a message at debug level."""
+        _logging = logging.getLogger(__name__)
+        _logging.debug(f"TeeItUpProvider [{self.x_be_alias}]: {message}")
+
+    def _log_result(self, method: str, success: bool, count: int):
+        """Log fetch/search results."""
+        _logging = logging.getLogger(__name__)
+        status = "success" if success else "no results"
+        _logging.info(f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})")
+
     def fetch_availability(self, request: SearchRequest) -> list[dict]:
         """Fetch availability from the TeeItUp API for this course.
 
