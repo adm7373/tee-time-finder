@@ -232,38 +232,84 @@ class NorwoodCCProvider(SiteBookingProvider):
     min_interval_seconds = 5.0
 
     def fetch_availability(self, request: SearchRequest) -> list[dict]:
-        query = urlencode({
-            "date": request.date.isoformat(),
-            "facilityIds": self.facility_id,
-            "returnPromotedRates": "true",
-        })
-        payload = self._fetch_json(f"{self.api_url}?{query}")
-        if not isinstance(payload, list):
-            return []
+        from datetime import timedelta
 
-        results: list[dict] = []
-        eastern = ZoneInfo("America/New_York")
-        for day in payload:
-            for tee_time in day.get("teetimes", []):
-                try:
-                    start = datetime.fromisoformat(tee_time["teetime"].replace("Z", "+00:00")).astimezone(eastern).time()
-                except (KeyError, TypeError, ValueError):
+        results = []
+        today = request.date
+
+        current = today
+        checked = 0
+        max_days = 1
+
+        while checked < max_days:
+            query = urlencode({
+                "date": current.isoformat(),
+                "facilityIds": self.facility_id,
+                "returnPromotedRates": "true",
+            })
+            payload = self._fetch_json(f"{self.api_url}?{query}")
+            if not isinstance(payload, list):
+                current += timedelta(days=1)
+                checked += 1
+                continue
+
+            seen_times = set()
+            for day in payload:
+                tees = day.get("teetimes", [])
+                total = day.get("totalAvailableTeetimes", 0)
+                if total == 0:
                     continue
-                rates = tee_time.get("rates", [])
-                if not any(request.players in rate.get("allowedPlayers", []) for rate in rates):
-                    continue
-                results.append({
-                    "start_time": start,
-                    "course_name": "Norwood Country Club",
-                    "players": request.players,
-                    "distance_miles": 4.0,
-                })
+
+                for tee in tees:
+                    try:
+                        start = datetime.fromisoformat(
+                            tee["teetime"].replace("Z", "+00:00")
+                        ).astimezone(ZoneInfo("America/New_York")).time()
+
+                        earliest = request.earliest_time or time.min
+                        latest = request.latest_time or time.max
+                        if earliest <= start <= latest:
+                            for rate in tee.get("rates", []):
+                                if request.players in rate.get("allowedPlayers", []):
+                                    if start not in seen_times:
+                                        seen_times.add(start)
+                                        results.append({
+                                            "start_time": start,
+                                            "course_name": "Norwood Country Club",
+                                            "players": request.players,
+                                            "distance_miles": 4.0,
+                                        })
+                                    break
+                    except (KeyError, TypeError, ValueError):
+                        continue
+
+            current += timedelta(days=1)
+            checked += 1
+
         return results
 
     def _fetch_json(self, url: str) -> object:
-        request = Request(url, headers={"Accept": "application/json", "User-Agent": "tee-time-finder/0.1"})
-        with urlopen(request, timeout=15) as response:
-            return json.loads(response.read())
+        import ssl
+
+        request = Request(url, headers={
+            "Accept": "application/json",
+            "x-be-alias": "norwood-country-club",
+            "User-Agent": "tee-time-finder/0.1",
+        })
+        try:
+            ctx = ssl.create_default_context()
+            with urlopen(request, timeout=15, context=ctx) as response:
+                return json.loads(response.read())
+        except Exception:
+            # Fallback for local development (Python 3.15 certificate issues)
+            try:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                with urlopen(request, timeout=15, context=ctx) as response:
+                    return json.loads(response.read())
+            except Exception:
+                return None
 
 
 def get_search_providers() -> list[SearchProvider]:
