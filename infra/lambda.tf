@@ -38,28 +38,10 @@ resource "aws_lambda_function" "api" {
       COGNITO_REGION        = var.aws_region
       COGNITO_USER_POOL_ID  = aws_cognito_user_pool.main.id
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.web.id
-      TEEITUP_SECRET_ARN    = aws_secretsmanager_secret.teeitup.arn
     }
   }
 }
 
-resource "aws_iam_role_policy" "lambda_secrets" {
-  name = "${var.project_name}-lambda-secrets"
-  role = aws_iam_role.lambda_execution.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "ReadTeeItUpSecret"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = aws_secretsmanager_secret.teeitup.arn
-      }
-    ]
-  })
-}
 
 resource "aws_apigatewayv2_api" "http" {
   name          = "${var.project_name}-api"
