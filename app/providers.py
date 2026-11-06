@@ -250,6 +250,7 @@ def get_search_providers() -> list[SearchProvider]:
         SquirrelRunProvider(),
         PonkapoagCCProvider(),
         BraintreeCountryClubProvider(),
+        PresidentsGCProvider(),
     ]
     return providers
 
@@ -305,4 +306,22 @@ class PresidentsGCProvider(SearchProvider):
                 )
 
         return results
+
+
+
+
+class PresidentsGCProvider(TeeItUpProvider):
+    """Provider for Presidents Golf Course (Quincy, MA).
+
+    Tee times page: https://www.presidentsgc.org/teetimes/
+
+    This provider uses the TeeItUp API pattern for availability search.
+    """
+
+    name = "presidents-gc"
+    base_url = "https://www.presidentsgc.org.book.teeitup.golf"
+    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
+    facility_id = "XXXXX"  # Replace with actual facility ID
+    x_be_alias = "presidents-gc"
+
 
