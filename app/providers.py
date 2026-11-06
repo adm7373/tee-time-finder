@@ -27,21 +27,96 @@ class SearchProvider:
         raise NotImplementedError
 
 
+class MockSearchProvider(SearchProvider):
+    """Deterministic sample provider for local development and the Quincy area."""
+
+    name = "mock"
+
+    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
+        candidates = [
+            ("Quincy Municipal Golf Course", time(7, 30), 3.2),
+            ("Granite Links Golf Club", time(9, 10), 8.7),
+            ("George Wright Golf Course", time(11, 45), 16.4),
+        ]
+        earliest = request.earliest_time or time.min
+        latest = request.latest_time or time.max
+        return [
+            TeeTimeOption(
+                provider=self.name,
+                course_name=course,
+                start_time=start,
+                players=request.players,
+                distance_miles=distance,
+                booking_enabled=False,
+            )
+            for course, start, distance in candidates
+            if earliest <= start <= latest and distance <= request.radius_miles
+        ]
+
+
+
+class SiteBookingProvider(SearchProvider):
+    """Base provider for a specific course booking website.
+
+    Subclasses implement ``fetch_availability(request)`` to scrape or query a
+    specific booking site and return raw tee-time slots. The base class handles
+    time-window filtering and TeeTimeOption construction.
+
+    Project boundaries respected by all subclasses:
+    - Never store credentials, payment data, or customer personal information.
+    - Respect the site's robots.txt, rate limits, and terms of service.
+    - Search is separate from booking: results always have booking_enabled=False.
+    - Fail closed: network or parse errors return an empty list, never an exception.
+    """
+
+    #: Base URL of the booking site, e.g. "https://www.example-course.com"
+    base_url: str = ""
+
+    #: Human-readable name shown in results.
+    name: str = "site"
+
+    #: Minimum seconds between requests to this site (rate limiting).
+    min_interval_seconds: float = 2.0
+
+    _last_request_time: float = 0.0
+
+    def _fetch(self, url: str) -> str | None:
+        """Fetch a URL and return its text content, or None on failure."""
+        import time as _time
+
+        now = _time.time()
+        elapsed = now - self._last_request_time
+        if elapsed < self.min_interval_seconds:
+            _time.sleep(self.min_interval_seconds - elapsed)
+        self._last_request_time = _time.time()
+
+        try:
+            req = Request(
+                url,
+                headers={
+                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",
+                },
+            )
+            with urlopen(req, timeout=15) as response:
+                return response.read().decode("utf-8")
+        except Exception:
+            return None
+
+
+
 class TeeItUpProvider(SearchProvider):
     """Base provider for courses using TeeItUp for booking.
 
     Courses using TeeItUp booking system should subclass this and set the
-    class attributes ``base_url``, ``api_url``, ``facility_id``, and
-    ``x_be_alias`` to match their specific configuration.
+    class attributes ``api_url``, ``facility_id``, and ``x_be_alias`` to match
+    their specific configuration. The ``base_url`` is computed automatically
+    from ``x_be_alias`` as ``https://{x_be_alias}.book.teeitup.golf``.
 
     The ``fetch_availability`` method handles the TeeItUp API pattern:
-    - Constructs the API URL with facility ID and requested date
+    - Constructs the API URL with facility ID and current date
     - Sends a JSON request with the ``x-be-alias`` header
     - Parses tee-time slots from the response
     """
-
-    #: Base URL of the booking site, e.g. "https://norwood-country-club.book.teeitup.golf"
-    base_url: str = ""
 
     #: API endpoint for tee times, e.g. "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     api_url: str = ""
@@ -55,6 +130,15 @@ class TeeItUpProvider(SearchProvider):
     min_interval_seconds: float = 2.0
 
     _last_request_time: float = 0.0
+
+    def __init__(self, **kwargs):
+        """Initialize TeeItUpProvider and compute base_url."""
+        super().__init__(**kwargs)
+        # Compute base_url from x_be_alias: "https://{x_be_alias}.book.teeitup.golf"
+        if self.x_be_alias:
+            self.base_url = f"https://{self.x_be_alias}.book.teeitup.golf"
+        else:
+            self.base_url = ""
 
     def _fetch(self, url: str) -> str | None:
         """Fetch a URL and return its text content, or None on failure."""
@@ -207,7 +291,6 @@ class NorwoodCCProvider(TeeItUpProvider):
     """Provider for Norwood Country Club (Norwood, MA)."""
 
     name = "norwood-cc"
-    base_url = "https://norwood-country-club.book.teeitup.golf"
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "5720"
     x_be_alias = "norwood-country-club"
@@ -217,7 +300,6 @@ class SquirrelRunProvider(TeeItUpProvider):
     """Provider for Squirrel Run Golf Course."""
 
     name = "squirrel-run"
-    base_url = "https://squirrel-run.book.teeitup.golf"
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "3196"
     x_be_alias = "squirrel-run"
@@ -227,7 +309,6 @@ class PonkapoagCCProvider(TeeItUpProvider):
     """Provider for Ponkapoag Country Club."""
 
     name = "ponkapoag-cc"
-    base_url = "https://ponkapoag-cc.book.teeitup.golf"
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "4068"
     x_be_alias = "ponkapoag-cc"
@@ -237,37 +318,15 @@ class BraintreeCountryClubProvider(TeeItUpProvider):
     """Provider for Braintree Country Club."""
 
     name = "braintree-cc"
-    base_url = "https://braintree-cc.book.teeitup.golf"
     api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
     facility_id = "5024"
     x_be_alias = "braintree-cc"
 
 
-
-def get_search_providers() -> list[SearchProvider]:
-    providers: list[SearchProvider] = [
-        NorwoodCCProvider(),
-        SquirrelRunProvider(),
-        PonkapoagCCProvider(),
-        BraintreeCountryClubProvider(),
-        PresidentsGCProvider(),
-    ]
-    return providers
-
-
-def search_all(request: SearchRequest) -> list[TeeTimeOption]:
-    results = [result for provider in get_search_providers() for result in provider.search(request)]
-    return sorted(results, key=lambda result: result.start_time)
-
-
 class PresidentsGCProvider(SearchProvider):
     """Provider for Presidents Golf Course (Quincy, MA).
 
-    Tee times page: https://www.presidentsgc.org/teetimes/
-    Tee times can be booked 7 days in advance.
-
-    This provider implements search-only behavior, returning available
-    tee-time slots for the requested date and player count.
+    Implements search-only behavior for Presidents Golf Course.
     """
 
     name = "presidents-gc"
@@ -309,19 +368,17 @@ class PresidentsGCProvider(SearchProvider):
 
 
 
-
-class PresidentsGCProvider(TeeItUpProvider):
-    """Provider for Presidents Golf Course (Quincy, MA).
-
-    Tee times page: https://www.presidentsgc.org/teetimes/
-
-    This provider uses the TeeItUp API pattern for availability search.
-    """
-
-    name = "presidents-gc"
-    base_url = "https://www.presidentsgc.org.book.teeitup.golf"
-    api_url = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
-    facility_id = "XXXXX"  # Replace with actual facility ID
-    x_be_alias = "presidents-gc"
+def get_search_providers() -> list[SearchProvider]:
+    providers: list[SearchProvider] = [
+        NorwoodCCProvider(),
+        SquirrelRunProvider(),
+        PonkapoagCCProvider(),
+        BraintreeCountryClubProvider(),
+        PresidentsGCProvider(),
+    ]
+    return providers
 
 
+def search_all(request: SearchRequest) -> list[TeeTimeOption]:
+    results = [result for provider in get_search_providers() for result in provider.search(request)]
+    return sorted(results, key=lambda result: result.start_time)
