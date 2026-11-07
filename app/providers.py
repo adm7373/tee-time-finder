@@ -221,12 +221,11 @@ class TeeItUpProvider(SearchProvider):
         for item in availability:
             options.append(
                 TeeTimeOption(
-                    provider=self.name,
+                    provider=self.x_be_alias,
                     course_name=item["course_name"],
                     start_time=item["start_time"],
                     players=item["players"],
                     distance_miles=item["distance_miles"],
-                    # booking_enabled removed - search-focused
                 )
             )
 

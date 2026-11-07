@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time  # noqa: F401
 from enum import StrEnum
 from pydantic import BaseModel, Field
 
@@ -22,10 +22,5 @@ class TeeTimeOption(BaseModel):
 
 class StrEnum(StrEnum):
     available = "available"
-    booking_requested = "booking_requested"
     confirmed = "confirmed"
     failed = "failed"
-
-
-# Booking concept removed - these classes were related to booking operations
-# and are kept only if needed for other functionality
