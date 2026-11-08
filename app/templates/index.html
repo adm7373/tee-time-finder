@@ -48,7 +48,7 @@
     <div id="results"></div>
     <script>
         const base = location.origin; let token = null;
-        document.querySelector('#login').onclick = () => { location.href = '/login?client_id=2o1mvf7bfiumaet2rpiubo2js1&response_type=code&scope=openid+email&redirect_uri=' + encodeURIComponent(base + '/') };
+        document.querySelector('#login').onclick = () => { location.href = 'https://tee-time-finder-550968370453.auth.us-east-1.amazoncognito.com/login?client_id=2o1mvf7bfiumaet2rpiubo2js1&response_type=code&scope=openid+email&redirect_uri='+encodeURIComponent(base+'/') };
         const code = new URLSearchParams(location.search).get('code');
         if (code) {
             fetch(
