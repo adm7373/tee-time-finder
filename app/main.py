@@ -30,7 +30,6 @@ def page(request: Request) -> str:
 @app.post("/auth/token")
 def exchange_code(payload: dict[str, str]) -> dict[str, object]:
     """Exchange a Cognito authorization code without storing credentials in the browser."""  # noqa: E501
-    domain = settings.base_url
     client_id = settings.cognito_app_client_id
     if (
         not client_id or not payload.get("code") or not payload.get("redirect_uri")
@@ -47,7 +46,7 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
 
     try:
         response = requests.post(
-            f"https://{domain}/oauth2/token",
+            f"{settings.base_url}/oauth2/token",
             data=body,
             headers={"content-type": "application/x-www-form-urlencoded"},
             timeout=10,
