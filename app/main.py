@@ -1,3 +1,4 @@
+import os
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -15,7 +16,9 @@ from mangum import Mangum
 settings = get_settings()
 app = FastAPI(title="Tee Time Finder", version="0.1.0")
 
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(
+    directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+)
 
 
 @app.get("/", response_class=HTMLResponse)
