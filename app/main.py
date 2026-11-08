@@ -3,8 +3,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
-from urllib.request import HTTPError, urlopen
-import json
+import requests
 from datetime import date
 
 from .auth import require_user
@@ -45,17 +44,18 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
             "redirect_uri": payload["redirect_uri"],
         }
     ).encode()
-    request = Request(
-        f"https://{domain}/oauth2/token",
-        data=body,
-        headers={"content-type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
+
     try:
-        with urlopen(request, timeout=10) as response:
-            return json.loads(response.read())
-    except HTTPError as error:
-        details = json.loads(error.read())
+        response = requests.post(
+            f"https://{domain}/oauth2/token",
+            data=body,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as error:
+        details = error.response.json()
         return {
             "error": details.get("error", "token_exchange_failed"),
             "error_description": details.get(
