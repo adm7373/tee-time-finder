@@ -30,7 +30,7 @@ def page(request: Request) -> str:
 
 @app.post("/auth/token")
 def exchange_code(payload: dict[str, str]) -> dict[str, object]:
-    """Exchange a Cognito authorization code without storing credentials in the browser."""  # noqa: E501
+    """Exchange a Cognito authorization code without storing creds in the browser."""
     client_id = settings.cognito_app_client_id
     if (
         not client_id or not payload.get("code") or not payload.get("redirect_uri")
@@ -46,6 +46,11 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
     ).encode()
 
     try:
+        logger.info(
+            "Exchanging code.",
+            client_id={settings.cognito_app_client_id},
+            base_url={settings.base_url},
+        )
         response = requests.post(
             f"{settings.base_url}/oauth2/token",
             data=body,
@@ -62,6 +67,8 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
                 }
             error_msg = (
                 f"Cognito token exchange failed: "
+                f"status={response.status_code}, "
+                f"client_id={settings.cognito_app_client_id}, "
                 f"error={error_details.get('error')}, "
                 f"error_description={error_details.get('error_description')}, "
                 f"response_text={response.text[:500]}"
