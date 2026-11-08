@@ -1,5 +1,6 @@
 import os
 from fastapi import Depends, FastAPI, Request
+from fastapi.logger import logger
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
@@ -51,21 +52,46 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
             headers={"content-type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
-        response.raise_for_status()
+        if not response.ok:
+            try:
+                error_details = response.json()
+            except ValueError:
+                error_details = {
+                    "error": "invalid_response",
+                    "error_description": response.text,
+                }
+            error_msg = (
+                f"Cognito token exchange failed: "
+                f"error={error_details.get('error')}, "
+                f"error_description={error_details.get('error_description')}, "
+                f"response_text={response.text[:500]}"
+            )
+            logger.error(error_msg)
+            return {
+                "error": "token_exchange_failed",
+                "error_description": "Cognito rejected the authorization code",
+            }
         return response.json()
-    except requests.HTTPError as error:
-        details = error.response.json()
+    except requests.RequestException as error:
+        logger.error(f"Connection error exchanging code: {error}")
         return {
-            "error": details.get("error", "token_exchange_failed"),
-            "error_description": details.get(
-                "error_description", "Cognito rejected the authorization code"
-            ),
+            "error": "token_exchange_failed",
+            "error_description": "Cognito rejected the authorization code",
         }
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/debug")
+def debug() -> dict[str, str]:
+    return {
+        "base_url": settings.base_url,
+        "cognito_issuer": settings.cognito_issuer,
+        "cognito_app_client_id": settings.cognito_app_client_id,
+    }
 
 
 @app.get("/config")
