@@ -8,7 +8,7 @@ on:
       - "requirements.txt"
       - ".github/workflows/terraform.yml"
   push:
-    branches: [main, fix/cognito-signin]
+    branches: [main]
     paths:
       - "infra/**"
       - "app/**"
@@ -79,7 +79,7 @@ jobs:
 
   apply:
     name: Terraform apply
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/cognito-signin')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: plan
     runs-on: ubuntu-latest
     environment: production
