@@ -24,8 +24,11 @@ resource "aws_cognito_user_pool_client" "web" {
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["openid", "email"]
   supported_identity_providers         = ["COGNITO"]
-  callback_urls                        = ["${var.public_base_url}/"]
-  logout_urls                          = ["${var.public_base_url}/"]
+  # Must match the redirect URI the Lambda sends to /oauth2/token exactly, or
+  # Cognito answers with error=redirect_mismatch. Both sides read the same
+  # local, defined in lambda.tf, so they cannot drift apart.
+  callback_urls = [local.cognito_callback_url]
+  logout_urls   = [local.cognito_callback_url]
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",

@@ -38,6 +38,11 @@ resource "aws_lambda_function" "api" {
       COGNITO_REGION        = var.aws_region
       COGNITO_USER_POOL_ID  = aws_cognito_user_pool.main.id
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.web.id
+      # The hosted UI is a different host from the API: /oauth2/token lives
+      # there, while the API endpoint is the app itself.
+      BASE_URL             = aws_apigatewayv2_api.http.api_endpoint
+      COGNITO_DOMAIN_URL   = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
+      COGNITO_REDIRECT_URI = local.cognito_callback_url
     }
   }
 }
@@ -48,6 +53,13 @@ resource "aws_apigatewayv2_api" "http" {
   protocol_type = "HTTP"
 }
 
+locals {
+  # Single source of truth for the OAuth callback: it is both the app client's
+  # registered callback_url and the redirect URI the Lambda sends to the token
+  # endpoint. If these drift apart Cognito answers error=redirect_mismatch.
+  cognito_callback_url = "${trimsuffix(aws_apigatewayv2_api.http.api_endpoint, "/")}/"
+}
+
 resource "aws_apigatewayv2_authorizer" "cognito" {
   api_id           = aws_apigatewayv2_api.http.id
   authorizer_type  = "JWT"
@@ -55,7 +67,12 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
   name             = "cognito"
 
   jwt_configuration {
-    audience = [aws_cognito_user_pool_client.web.id]
+    # Deliberately empty. API Gateway matches `audience` against the token's
+    # `aud` claim, but Cognito ACCESS tokens - the ones this app sends - carry
+    # `client_id` and no `aud` at all. Listing the app client here would reject
+    # every access token with a 401. Signature, issuer and expiry are still
+    # enforced at the edge; the app client is checked in app/auth.py.
+    audience = []
     issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
   }
 }
