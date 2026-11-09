@@ -172,7 +172,7 @@ def public_config() -> dict[str, str | None]:
 def search(
     request: SearchRequest, user: dict = Depends(require_user)
 ) -> list[TeeTimeOption]:
-    """Search all configured providers; booking is intentionally disabled.
+    """Search all configured providers.
 
     Guarded by ``require_user`` alone. The API Gateway JWT authorizer checks the
     token's signature, issuer and expiry but not its audience: Cognito access

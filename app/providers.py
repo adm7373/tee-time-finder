@@ -218,7 +218,6 @@ class TeeItUpProvider(SearchProvider):
                     start_time=item["start_time"],
                     players=item["players"],
                     distance_miles=item["distance_miles"],
-                    # booking_enabled removed - search-focused
                 )
             )
 
