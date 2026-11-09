@@ -139,13 +139,21 @@ read operations. If a PR's plan starts failing with AccessDenied, that file is
 missing an action the provider needs during refresh — add it there, not to the
 deploy role.
 
-## Two things this role deliberately cannot do
+## What this role cannot do
 
-- **Create or modify IAM roles.** The only IAM resources it may touch are the
-  GitHub OIDC provider and the Lambda execution role this project owns. Adding a
-  new role to `infra/` means creating it here first — a one-off, by hand.
-- **Escalate itself.** Because it cannot write role policies, the permissions
-  above are the ceiling: no merge can widen them.
+- **Create, delete or repoint IAM roles.** It can read them, and it can edit
+  the inline policy and policy attachment on the Lambda execution role this
+  project owns, because Terraform manages those. Adding a new role to `infra/`
+  means creating it here first — a one-off, by hand.
+- **Touch any role other than its own Lambda's.** Every IAM action in the policy
+  is scoped to the OIDC provider and `tee-time-finder-lambda-execution`.
+- **Escalate itself.** It can edit the policy on the *Lambda* role, not on
+  itself, so the permissions above are the ceiling: no merge can widen them.
+
+> `iam:GetRole` is required even for a plan: Terraform refreshes every managed
+> resource before it can show a diff. A policy that can write a resource but not
+> read it fails at refresh, which is how the first version of this file broke
+> the deploy.
 
 ## Pitfall: the role cannot remove itself from Terraform
 
