@@ -1,4 +1,4 @@
-from datetime import time, datetime
+from datetime import date, time, datetime
 from functools import lru_cache
 import time as _time
 import logging
@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import ssl
 import json
 
+from .geo import GeocodeStore, Geocoder, distance_miles as miles_between
 from .models import SearchRequest, TeeTimeOption
 
 
@@ -28,7 +29,12 @@ class SearchProvider:
         """Return True if this provider has everything it needs to run."""
         return True
 
-    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
+    #: Human-readable course name; falls back to ``name`` when unset.
+    display_name = ""
+
+    def search(
+        self, request: SearchRequest, distance_miles: float = 0.0
+    ) -> list[TeeTimeOption]:
         raise NotImplementedError
 
 
@@ -190,44 +196,42 @@ class TeeItUpProvider(SearchProvider):
                     {
                         "date": request.date,
                         "start_time": start.time(),
-                        "course_name": self.x_be_alias,
+                        "course_name": self.display_name or self.x_be_alias,
                         "players": request.players,
-                        "distance_miles": 4.0,
                     }
                 )
 
         self._log_result("fetch_availability", bool(results), len(results))
         return results
 
-    def search(self, request: SearchRequest) -> list[TeeTimeOption]:
+    def search(
+        self, request: SearchRequest, distance_miles: float = 0.0
+    ) -> list[TeeTimeOption]:
         """Search for tee-time options.
 
-        For TeeItUp providers, search returns tee-time options fetched
-        from the availability API. This maintains search-focused behavior.
+        ``distance_miles`` is supplied by :func:`search_all`, which knows where
+        the caller's ZIP is relative to this course.
         """
 
         availability = self.fetch_availability(request)
-        options = []
-
-        for item in availability:
-            options.append(
-                TeeTimeOption(
-                    provider=self.name,
-                    course_name=item["course_name"],
-                    date=item["date"],
-                    start_time=item["start_time"],
-                    players=item["players"],
-                    distance_miles=item["distance_miles"],
-                )
+        return [
+            TeeTimeOption(
+                provider=self.name,
+                course_name=item["course_name"],
+                date=item["date"],
+                start_time=item["start_time"],
+                players=item["players"],
+                distance_miles=round(distance_miles, 1),
             )
-
-        return options
+            for item in availability
+        ]
 
 
 class NorwoodCCProvider(TeeItUpProvider):
     """Provider for Norwood Country Club (Norwood, MA)."""
 
     facility_id = "5720"
+    display_name = "Norwood Country Club"
     x_be_alias = "norwood-country-club"
 
 
@@ -235,6 +239,7 @@ class SquirrelRunProvider(TeeItUpProvider):
     """Provider for Squirrel Run Golf Course."""
 
     facility_id = "4328"
+    display_name = "Squirrel Run Golf Course"
     x_be_alias = "squirrel-run-golf-club"
 
 
@@ -242,6 +247,7 @@ class VillageLinksProvider(TeeItUpProvider):
     """Provider for Village Links"""
 
     facility_id = "4329"
+    display_name = "Village Links Golf Club"
     x_be_alias = "village-links-golf-club"
 
 
@@ -249,6 +255,7 @@ class PonkapoagCCProvider(TeeItUpProvider):
     """Provider for Ponkapoag Country Club."""
 
     facility_id = "17927"
+    display_name = "Ponkapoag Golf Course"
     x_be_alias = "ponkapoag-golf-course"
 
 
@@ -256,6 +263,7 @@ class PonkapoagCC2Provider(TeeItUpProvider):
     """Provider for Ponkapoag Country Club."""
 
     facility_id = "17927"
+    display_name = "Ponkapoag Golf Course"
     x_be_alias = "ponkapoag-golf-course-2"
 
 
@@ -263,6 +271,7 @@ class BraintreeCountryClubProvider(TeeItUpProvider):
     """Provider for Braintree Country Club."""
 
     facility_id = "16026"
+    display_name = "Braintree Municipal Golf Course"
     x_be_alias = "braintree-municipal-golf-course"
 
 
@@ -270,6 +279,7 @@ class PresidentsGCProvider(TeeItUpProvider):
     """Provider for Presidents Golf Course (Quincy, MA)."""
 
     facility_id = "17943"
+    display_name = "Presidents Golf Course"
     x_be_alias = "presidents-golf-course"
 
 
@@ -286,10 +296,37 @@ def get_search_providers() -> list[SearchProvider]:
     return providers
 
 
-def search_all(request: SearchRequest) -> list[TeeTimeOption]:
-    results = [
-        result
-        for provider in get_search_providers()
-        for result in provider.search(request)
-    ]
+def search_all(
+    request: SearchRequest,
+    store: GeocodeStore | None = None,
+    geocoder: Geocoder | None = None,
+) -> list[TeeTimeOption]:
+    """Search every configured course, filtering by the requested radius.
+
+    The caller's ZIP is resolved through ``store`` (a cached lookup, geocoding
+    on a miss). Courses without known coordinates are still searched, so a
+    missing seed row hides the distance rather than the course.
+    """
+    store = store or GeocodeStore(None)
+    origin = store.zip(request.zip_code, geocoder)
+
+    results: list[TeeTimeOption] = []
+    seen: set[tuple[str, date, time]] = set()
+    for provider in get_search_providers():
+        distance = 0.0
+        if origin is not None:
+            course = store.course(provider.facility_id)
+            if course is not None:
+                distance = miles_between(origin, course)
+                if distance > request.radius_miles:
+                    continue
+        for option in provider.search(request, distance_miles=distance):
+            # Two aliases can front the same facility (Ponkapoag), which would
+            # otherwise list every tee time twice.
+            key = (option.course_name, option.date, option.start_time)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(option)
+
     return sorted(results, key=lambda result: result.start_time)

@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     #: request with ``error=redirect_mismatch``.
     cognito_redirect_uri: str = ""
 
+    #: DynamoDB table holding cached ZIP and course coordinates.
+    geocode_table_name: str | None = None
+    #: Identifies this app to Nominatim, whose usage policy requires it.
+    nominatim_user_agent: str = "tee-time-finder/0.1 (personal tool)"
+
     @property
     def cognito_issuer(self) -> str | None:
         if not self.cognito_user_pool_id:

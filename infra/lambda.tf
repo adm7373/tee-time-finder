@@ -43,6 +43,8 @@ resource "aws_lambda_function" "api" {
       BASE_URL             = aws_apigatewayv2_api.http.api_endpoint
       COGNITO_DOMAIN_URL   = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
       COGNITO_REDIRECT_URI = local.cognito_callback_url
+      # Where cached ZIP and course coordinates live; see infra/geocode.tf.
+      GEOCODE_TABLE_NAME = aws_dynamodb_table.geocode.name
     }
   }
 }
