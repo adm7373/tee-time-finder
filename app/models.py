@@ -1,5 +1,4 @@
 from datetime import date, time  # noqa: F401
-from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
@@ -18,9 +17,3 @@ class TeeTimeOption(BaseModel):
     start_time: time
     players: int
     distance_miles: float
-
-
-class StrEnum(StrEnum):
-    available = "available"
-    confirmed = "confirmed"
-    failed = "failed"
