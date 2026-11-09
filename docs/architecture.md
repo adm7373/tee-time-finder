@@ -19,6 +19,8 @@ Booking is intentionally disabled in the first release. To prepare for it, keep 
 
 The booking provider must re-check the selected slot before attempting a reservation. A booking attempt should be idempotent where the provider permits it, and all provider-specific authentication should be injected at runtime from a secret manager or isolated browser/session service.
 
+Booking is not implemented yet: there is no `BookingProvider`, `BookingRequest` or `BookingResult` in the codebase. The boundary above describes the shape any future booking integration should take, so search can stay availability-only.
+
 ## Privacy and access
 
 The web application should be private by default, with authentication and authorization enforced before search requests are accepted. Search history and booking records, if added later, should be scoped to the owner account and should avoid storing raw provider responses when they contain personal data.
