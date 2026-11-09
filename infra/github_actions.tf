@@ -131,6 +131,29 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Action   = ["secretsmanager:CreateSecret", "secretsmanager:GetResourcePolicy"]
         Resource = "*"
       },
+      {
+        Sid    = "GeocodeTable"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:CreateTable",
+          "dynamodb:DescribeTable",
+          "dynamodb:UpdateTable",
+          "dynamodb:DeleteTable",
+          "dynamodb:DescribeTimeToLive",
+          "dynamodb:UpdateTimeToLive",
+          "dynamodb:DescribeContinuousBackups",
+          "dynamodb:UpdateContinuousBackups",
+          "dynamodb:TagResource",
+          "dynamodb:UntagResource",
+          "dynamodb:ListTagsOfResource",
+        ]
+        # CreateTable cannot be scoped to a table ARN that does not exist yet, so
+        # the table-scoped actions allow a name pattern instead of "*".
+        Resource = [
+          "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-geocode",
+          "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-geocode/*",
+        ]
+      },
     ]
   })
 }
