@@ -93,7 +93,9 @@ def _search(test_client: TestClient, token: str = "token"):
 
 
 def test_access_token_with_matching_client_id_is_accepted(client, monkeypatch):
-    monkeypatch.setattr(main_module, "search_all", lambda request: [])
+    monkeypatch.setattr(
+        main_module, "search_all", lambda request, store=None, geocoder=None: []
+    )
     test_client = client()
     client.state["claims"] = _claims()
     response = _search(test_client)
@@ -102,21 +104,27 @@ def test_access_token_with_matching_client_id_is_accepted(client, monkeypatch):
 
 
 def test_access_token_for_another_app_client_is_rejected(client, monkeypatch):
-    monkeypatch.setattr(main_module, "search_all", lambda request: [])
+    monkeypatch.setattr(
+        main_module, "search_all", lambda request, store=None, geocoder=None: []
+    )
     test_client = client()
     client.state["claims"] = _claims(client_id="some-other-client")
     assert _search(test_client).status_code == 401
 
 
 def test_id_token_with_matching_aud_is_accepted(client, monkeypatch):
-    monkeypatch.setattr(main_module, "search_all", lambda request: [])
+    monkeypatch.setattr(
+        main_module, "search_all", lambda request, store=None, geocoder=None: []
+    )
     test_client = client()
     client.state["claims"] = _claims(token_use="id", aud=CLIENT_ID)
     assert _search(test_client).status_code == 200
 
 
 def test_id_token_for_another_app_client_is_rejected(client, monkeypatch):
-    monkeypatch.setattr(main_module, "search_all", lambda request: [])
+    monkeypatch.setattr(
+        main_module, "search_all", lambda request, store=None, geocoder=None: []
+    )
     test_client = client()
     claims = _claims(token_use="id", aud="some-other-client")
     claims.pop("client_id")
@@ -125,7 +133,9 @@ def test_id_token_for_another_app_client_is_rejected(client, monkeypatch):
 
 
 def test_token_without_client_claim_is_rejected(client, monkeypatch):
-    monkeypatch.setattr(main_module, "search_all", lambda request: [])
+    monkeypatch.setattr(
+        main_module, "search_all", lambda request, store=None, geocoder=None: []
+    )
     test_client = client()
     claims = _claims()
     claims.pop("client_id")

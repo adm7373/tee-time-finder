@@ -1,4 +1,5 @@
 from datetime import date
+from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -8,12 +9,18 @@ import json
 
 from .auth import require_user
 from .config import get_settings
+from .geo import GeocodeStore, Geocoder
 from .models import SearchRequest, TeeTimeOption
 from .providers import search_all
 from mangum import Mangum
 
 settings = get_settings()
 app = FastAPI(title="Tee Time Finder", version="0.1.0")
+
+# One store and one geocoder per process: the store memoises coordinates it has
+# already read, so a warm Lambda avoids DynamoDB entirely on repeat searches.
+_geocode_store = lru_cache(maxsize=1)(lambda: GeocodeStore(settings.geocode_table_name))
+_geocoder = lru_cache(maxsize=1)(lambda: Geocoder(settings.nominatim_user_agent))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -88,7 +95,8 @@ def page() -> str:
       }
       results.innerHTML = body.map(x =>
         `<div class="card"><b>${x.course_name}</b><br>${x.date} ${x.start_time}` +
-        ` · ${x.distance_miles} miles · ${x.players} players</div>`
+        ` · ${x.distance_miles ? "~" + x.distance_miles + " miles" : "distance unknown"}` +
+        ` · ${x.players} players</div>`
       ).join('') || 'No tee times found.';
     };
 
@@ -179,7 +187,7 @@ def search(
     tokens carry ``client_id`` rather than ``aud``, so the app client is
     verified here instead.
     """
-    return search_all(request)
+    return search_all(request, _geocode_store(), _geocoder())
 
 
 handler = Mangum(app)
