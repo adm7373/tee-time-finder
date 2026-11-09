@@ -5,11 +5,12 @@ Run once after `terraform apply`, and again whenever a course is added::
     python -m scripts.geocode_courses --dry-run     # show what would be stored
     python -m scripts.geocode_courses               # write to DynamoDB
 
-Coordinates are looked up with Nominatim, respecting its one-request-per-second
-policy. Courses Nominatim cannot find are reported rather than guessed; supply
-them with --set, which marks the row as manually placed::
+Coordinates come from MANUAL_COORDINATES where a course is not in OpenStreetMap,
+otherwise from Nominatim, respecting its one-request-per-second policy. Anything
+still unresolved is reported rather than guessed; --set overrides either source
+and marks the row as manually placed::
 
-    python -m scripts.geocode_courses --set 4328=41.9584,-70.6673
+    python -m scripts.geocode_courses --set 4328=41.9321,-70.7227
 
 Requires AWS credentials that can PutItem on the geocode table, and
 GEOCODE_TABLE_NAME (or --table) naming it.
@@ -21,6 +22,16 @@ import sys
 from app.config import get_settings
 from app.geo import Coordinates, GeocodeStore, Geocoder
 from app.providers import get_search_providers
+
+#: Courses OpenStreetMap does not have, placed by street address instead. Both
+#: are in Plymouth, MA, 1.6 miles apart; neither address is tagged as a golf
+#: course in OSM, so these are the street coordinates rather than a course node.
+MANUAL_COORDINATES = {
+    # 32 Elderberry Dr, Plymouth, MA 02360
+    "4328": Coordinates(lat=41.932114, lon=-70.722723, source="manual"),
+    # 265 S Meadow Rd, Plymouth, MA 02360
+    "4329": Coordinates(lat=41.910884, lon=-70.7359079, source="manual"),
+}
 
 #: Searches tried in order for each course. Nominatim misses some small courses
 #: by name alone, so each entry ends with the town it is known to be in.
@@ -75,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         facility_id = provider.facility_id
         label = provider.display_name or provider.name
 
-        coords = overrides.get(facility_id)
+        coords = overrides.get(facility_id) or MANUAL_COORDINATES.get(facility_id)
         if coords is None:
             for query in COURSE_QUERIES.get(facility_id, [label]):
                 coords = geocoder.by_query(query)
