@@ -38,7 +38,7 @@ resource "aws_lambda_function" "api" {
       COGNITO_REGION        = var.aws_region
       COGNITO_USER_POOL_ID  = aws_cognito_user_pool.main.id
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.web.id
-      BASE_URL              = var.public_base_url
+      BASE_URL              = aws_apigatewayv2_api.http.api_endpoint
     }
   }
 }
