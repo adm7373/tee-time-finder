@@ -101,6 +101,12 @@ def health() -> dict[str, str]:
 
 @app.get("/debug")
 def debug() -> dict[str, str | None]:
+    """Diagnostics for the sign-in flow.
+
+    Public by design: the redirect_uri mismatch it exists to diagnose happens
+    before a user can hold a token. Every value is already published to the
+    browser by /config, so this exposes nothing new.
+    """
     return {
         "base_url": settings.base_url,
         "cognito_issuer": settings.cognito_issuer,
@@ -145,7 +151,13 @@ def public_config() -> dict[str, str | None]:
 def search(
     request: SearchRequest, user: dict = Depends(require_user)
 ) -> list[TeeTimeOption]:
-    """Search all configured providers"""
+    """Search all configured providers.
+
+    Protected by ``require_user`` only. The API Gateway JWT authorizer validates
+    the signature, issuer and expiry, but deliberately not the audience (see
+    infra/lambda.tf): Cognito access tokens carry ``client_id`` rather than
+    ``aud``, so the app client is checked here instead.
+    """
     return search_all(request)
 
 

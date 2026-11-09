@@ -66,7 +66,13 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
   name             = "cognito"
 
   jwt_configuration {
-    audience = [aws_cognito_user_pool_client.web.id]
+    # Deliberately empty. API Gateway's JWT authorizer matches `audience` against
+    # the token's `aud` claim, but Cognito ACCESS tokens - which is what this app
+    # sends - carry `client_id` and no `aud` at all. Listing the app client here
+    # therefore rejects every access token with a 401. The signature, issuer and
+    # expiry are still enforced by API Gateway; the app client is verified from
+    # `client_id` (access) or `aud` (ID) in app/auth.py::require_user.
+    audience = []
     issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
   }
 }
@@ -110,6 +116,13 @@ resource "aws_apigatewayv2_route" "public_config" {
 resource "aws_apigatewayv2_route" "public_auth_token" {
   api_id             = aws_apigatewayv2_api.http.id
   route_key          = "POST /auth/token"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "public_debug" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "GET /debug"
   target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
   authorization_type = "NONE"
 }
