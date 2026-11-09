@@ -39,14 +39,27 @@
       "Resource": "*"
     },
     {
-      "Sid": "IamOidcProviderAndLambdaRole",
+      "Sid": "IamOidcAndLambdaRole",
       "Effect": "Allow",
       "Action": [
         "iam:CreateOpenIDConnectProvider",
         "iam:GetOpenIDConnectProvider",
-        "iam:DeleteOpenIDConnectProvider"
+        "iam:DeleteOpenIDConnectProvider",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListRoleTags",
+        "iam:TagRole"
       ],
-      "Resource": "arn:aws:iam::550968370453:oidc-provider/token.actions.githubusercontent.com"
+      "Resource": [
+        "arn:aws:iam::550968370453:oidc-provider/token.actions.githubusercontent.com",
+        "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution"
+      ]
     },
     {
       "Sid": "LambdaAndApiGateway",
