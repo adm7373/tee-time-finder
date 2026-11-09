@@ -12,7 +12,10 @@ on:
     paths:
       - "infra/**"
       - "app/**"
+      - "tests/**"
       - "requirements.txt"
+      - "requirements-dev.txt"
+      - "pytest.ini"
       - ".github/workflows/terraform.yml"
 
 permissions:
@@ -23,6 +26,27 @@ env:
   TF_VAR_aws_region: ${{ vars.AWS_REGION }}
 
 jobs:
+  test:
+    name: Python tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python3 -m pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python3 -m pytest -q
+
   plan:
     name: Terraform plan
     runs-on: ubuntu-latest
@@ -80,7 +104,7 @@ jobs:
   apply:
     name: Terraform apply
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: plan
+    needs: [test, plan]
     runs-on: ubuntu-latest
     environment: production
     permissions:

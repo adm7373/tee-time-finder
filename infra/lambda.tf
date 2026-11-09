@@ -38,7 +38,11 @@ resource "aws_lambda_function" "api" {
       COGNITO_REGION        = var.aws_region
       COGNITO_USER_POOL_ID  = aws_cognito_user_pool.main.id
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.web.id
-      BASE_URL              = aws_apigatewayv2_api.http.api_endpoint
+      # The hosted-UI domain is where /oauth2/token lives; the API endpoint is
+      # the app itself. These are different hosts and must not be conflated.
+      BASE_URL             = aws_apigatewayv2_api.http.api_endpoint
+      COGNITO_DOMAIN_URL   = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
+      COGNITO_REDIRECT_URI = local.cognito_callback_url
     }
   }
 }
@@ -47,6 +51,12 @@ resource "aws_lambda_function" "api" {
 resource "aws_apigatewayv2_api" "http" {
   name          = "${var.project_name}-api"
   protocol_type = "HTTP"
+}
+
+locals {
+  # Single source of truth for the OAuth redirect URI: used for the app client's
+  # callback_urls and handed to the Lambda so the browser never has to guess it.
+  cognito_callback_url = "${trimsuffix(aws_apigatewayv2_api.http.api_endpoint, "/")}/"
 }
 
 resource "aws_apigatewayv2_authorizer" "cognito" {

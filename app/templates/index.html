@@ -30,13 +30,17 @@
             padding: 14px;
             margin: 10px 0
         }
+
+        #error {
+            color: #9b1c1c
+        }
     </style>
 </head>
 
 <body>
     <h1>Tee Time Finder</h1>
     <p>Search local courses by date, time, players, ZIP code, and radius.</p>
-    <button id="login">Sign in with Cognito</button>
+    <button id="login" hidden>Sign in with Cognito</button>
     <form id="search" hidden><label>Date <input id="date" type="date" required></label>
         <label>ZIP <input id="zip" inputmode="numeric" value="02169" required></label>
         <label>Radius (miles) <input id="radius" type="number" min="1" max="100" step="1" value="25"></label>
@@ -45,68 +49,145 @@
         <label>Players <input id="players" type="number" min="1" max="4" value="2"></label>
         <button>Search tee times</button>
     </form>
+    <p id="error"></p>
     <div id="results"></div>
     <script>
-        const base = location.origin; let token = null;
-        document.querySelector('#login').onclick = () => { location.href = 'https://tee-time-finder-550968370453.auth.us-east-1.amazoncognito.com/login?client_id=2o1mvf7bfiumaet2rpiubo2js1&response_type=code&scope=openid+email&redirect_uri='+encodeURIComponent(base+'/') };
-        const code = new URLSearchParams(location.search).get('code');
-        if (code) {
-            fetch(
-                '/auth/token',
-                {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                        code,
-                        redirect_uri: base + '/'
-                    })
+        const $ = id => document.getElementById(id);
+        let token = null;
+        // Login URL and redirect URI come from the server, which reads them from
+        // the same configuration Terraform gives the Cognito app client. Deriving
+        // them here (e.g. from location.origin) can disagree with the registered
+        // callback_urls and makes Cognito answer with error=redirect_mismatch.
+        let authConfig = null;
+
+        function showError(message) {
+            $('error').textContent = message;
+        }
+
+        function showSignedIn() {
+            $('login').hidden = true;
+            $('search').hidden = false;
+        }
+
+        function showSignedOut() {
+            $('login').hidden = false;
+            $('search').hidden = true;
+        }
+
+        function renderOptions(options) {
+            if (!options.length) {
+                $('results').textContent = 'No tee times matched that search.';
+                return;
+            }
+            $('results').innerHTML = options.map(
+                x => `<div class="card"><b>${x.course_name}</b><br>${x.start_time} · ${x.distance_miles} miles · ${x.players} players</div>`
+            ).join('');
+        }
+
+        async function exchangeCode(code) {
+            const response = await fetch('/auth/token', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    code,
+                    redirect_uri: authConfig.cognito_redirect_uri
+                })
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || !body.access_token) {
+                throw new Error(body.error_description || body.error || 'Token exchange failed');
+            }
+            return body.access_token;
+        }
+
+        async function init() {
+            try {
+                const response = await fetch('/config');
+                authConfig = await response.json();
+            } catch (e) {
+                showError('Could not load configuration: ' + e.message);
+                return;
+            }
+            if (authConfig.default_date) {
+                $('date').value = authConfig.default_date;
+            }
+            if (authConfig.default_search_zip) {
+                $('zip').value = authConfig.default_search_zip;
+            }
+
+            if (!authConfig.cognito_login_url) {
+                showError('Sign-in is not configured for this deployment.');
+                return;
+            }
+            $('login').onclick = () => { location.href = authConfig.cognito_login_url; };
+
+            const params = new URLSearchParams(location.search);
+            const code = params.get('code');
+            const authError = params.get('error');
+            if (authError) {
+                showError(
+                    'Sign-in failed: ' + authError +
+                    (params.get('error_description') ? ' (' + params.get('error_description') + ')' : '')
+                );
+                history.replaceState({}, '', location.pathname);
+                showSignedOut();
+                return;
+            }
+            if (code) {
+                try {
+                    token = await exchangeCode(code);
+                    // Drop the one-time code from the address bar.
+                    history.replaceState({}, '', location.pathname);
+                } catch (e) {
+                    showError('Sign-in could not be completed: ' + e.message);
+                    showSignedOut();
+                    return;
                 }
-            )
-                .then(
-                    async r => {
-                        const x = await r.json();
-                        if (!r.ok || !x.access_token) {
-                            throw new Error(x.error_description || x.error || 'Token exchange failed');
-                            return x
-                        }
-                    }
-               )
-                .then(
-                    x => {
-                        token = x.access_token;
-                        document.querySelector('#login').hidden = true;
-                        document.querySelector('#search').hidden = false;
-                        history.replaceState({}, '', base)
-                    }
-                )
-                .catch(
-                    error => {
-                        results.textContent = 'Sign-in could not be completed: ' + error.message
-                    }
-                )
-            document.querySelector('#search').onsubmit = async e => {
-                e.preventDefault();
-                const r = await fetch(
-                    '/search',
-                    {
-                        method: 'POST',
-                        headers: {
-                            'content-type': 'application/json',
-                            'authorization': 'Bearer ' + token
-                        },
-                        body: JSON.stringify({
-                            date: date.value,
-                            zip_code: zip.value,
-                            radius_miles: +radius.value,
-                            earliest_time: earliest.value || null,
-                            latest_time: latest.value || null,
-                            players: +players.value
-                        })
-                    });
-                results.innerHTML = r.ok ? (await r.json()).map(
-                    x => `<div class="card"><b>${x.course_name}</b><br>${x.start_time} · ${x.distance_miles} miles · ${x.players} players</div>`).join('') : 'Search failed.'
+            }
+
+            if (token) {
+                showSignedIn();
+            } else {
+                showSignedOut();
             }
         }
+
+        $('search').onsubmit = async e => {
+            e.preventDefault();
+            $('error').textContent = '';
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({
+                        date: $('date').value,
+                        zip_code: $('zip').value,
+                        radius_miles: +$('radius').value,
+                        earliest_time: $('earliest').value || null,
+                        latest_time: $('latest').value || null,
+                        players: +$('players').value
+                    })
+                });
+                if (response.status === 401) {
+                    token = null;
+                    showSignedOut();
+                    showError('Your session expired. Please sign in again.');
+                    return;
+                }
+                if (!response.ok) {
+                    showError('Search failed (' + response.status + ').');
+                    return;
+                }
+                renderOptions(await response.json());
+            } catch (err) {
+                showError('Search failed: ' + err.message);
+            }
+        };
+
+        init();
 
     </script>
 </body>
