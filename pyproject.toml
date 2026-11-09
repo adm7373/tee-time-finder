@@ -1,0 +1,11 @@
+# Configuration only. Dependencies live in requirements.txt (runtime) and
+# requirements-dev.txt (tests), because the deploy installs the former into the
+# Lambda package with an explicit --platform target.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # starlette's TestClient warns that it wants httpx2; harmless for these tests.
+    "ignore::DeprecationWarning:starlette",
+    "ignore:Using `httpx` with `starlette.testclient`",
+]

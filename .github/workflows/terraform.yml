@@ -48,6 +48,8 @@ jobs:
       - name: Build Lambda package
         run: |
           python3 -m pip install --upgrade pip
+          # Runtime dependencies only: requirements-dev.txt adds pytest and
+          # httpx, which have no place in the Lambda package.
           python3 -m pip install -r requirements.txt --target build/lambda --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all:
           cp -R app build/lambda/app
 
@@ -103,6 +105,8 @@ jobs:
       - name: Build Lambda package
         run: |
           python3 -m pip install --upgrade pip
+          # Runtime dependencies only: requirements-dev.txt adds pytest and
+          # httpx, which have no place in the Lambda package.
           python3 -m pip install -r requirements.txt --target build/lambda --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all:
           cp -R app build/lambda/app
 
