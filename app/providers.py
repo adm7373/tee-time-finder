@@ -74,27 +74,6 @@ class TeeItUpProvider(SearchProvider):
         # provider name so results are attributable to a course.
         self.name = self.x_be_alias or type(self).__name__
 
-    def _fetch(self, url: str) -> str | None:
-        """Fetch a URL and return its text content, or None on failure."""
-
-        now = _time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < self.min_interval_seconds:
-            _time.sleep(self.min_interval_seconds - elapsed)
-        self._last_request_time = _time.time()
-
-        try:
-            req = Request(
-                url,
-                headers={
-                    "User-Agent": "tee-time-finder/0.1 (personal tool; contact via repo)",  # noqa: E501
-                },
-            )
-            with urlopen(req, timeout=15) as response:
-                return response.read().decode("utf-8")
-        except Exception:
-            return None
-
     def _fetch_json(self, url: str) -> object:
         """Fetch JSON from a URL with TeeItUp headers.
 
@@ -239,7 +218,6 @@ class TeeItUpProvider(SearchProvider):
                     start_time=item["start_time"],
                     players=item["players"],
                     distance_miles=item["distance_miles"],
-                    # booking_enabled removed - search-focused
                 )
             )
 

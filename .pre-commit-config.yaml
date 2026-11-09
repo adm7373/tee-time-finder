@@ -17,3 +17,8 @@ repos:
     rev: 7.5.0
     hooks:
     -   id: flake8
+        args:
+          - --max-line-length=100
+          # Pydantic resolves model annotations at runtime, so an import used
+          # only in an annotation is genuinely required.
+          - --extend-ignore=E501,W503,F401

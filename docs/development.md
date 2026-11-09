@@ -10,12 +10,16 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-The initial endpoints are:
+The endpoints are:
 
+- `GET /` — the search page
 - `GET /health` — service health check
-- `GET /config` — safe client defaults, including ZIP `02169`
-- `POST /search` — Cognito-protected search contract using the temporary mock provider
+- `GET /config` — safe client defaults, including ZIP `02169` and the Cognito login URL
+- `POST /auth/token` — exchanges a Cognito authorization code for a token
+- `POST /search` — Cognito-protected tee-time search
 
-The mock provider returns deterministic sample results and is deliberately marked with `booking_enabled=false`. Real course adapters should implement the same provider boundary and remain independent from the web layer.
+Courses are served by the TeeItUp adapters in `app/providers.py`; each subclass only declares its facility ID and `x-be-alias`. New courses should follow the same provider boundary and stay independent from the web layer.
+
+Run the tests with `python -m pytest`.
 
 Cognito settings are loaded from `.env` locally and should come from AWS Secrets Manager or Parameter Store in deployment. The `/search` endpoint requires a Cognito access token and validates its signature, issuer, expiration, token type, and app client ID. `/health` and `/config` remain public.
