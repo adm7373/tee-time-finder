@@ -18,6 +18,9 @@ class SearchProvider:
     configured so it can be skipped without failing the whole search.
     """
 
+    #: Stable provider identifier, surfaced on every ``TeeTimeOption``.
+    name = "base"
+
     @classmethod
     def is_configured(cls) -> bool:
         """Return True if this provider has everything it needs to run."""
@@ -25,6 +28,11 @@ class SearchProvider:
 
     def search(self, request: SearchRequest) -> list[TeeTimeOption]:
         raise NotImplementedError
+
+
+#: All configured courses are in New England; the TeeItUp API returns UTC
+#: instants, which must be converted before comparing against a local window.
+COURSE_TIMEZONE = "America/New_York"
 
 
 class TeeItUpProvider(SearchProvider):
@@ -62,6 +70,9 @@ class TeeItUpProvider(SearchProvider):
             self.base_url = f"https://{self.x_be_alias}.book.teeitup.golf"
         else:
             self.base_url = ""
+        # Subclasses declare their alias as a class attribute; expose it as the
+        # provider name so results are attributable to a course.
+        self.name = self.x_be_alias or type(self).__name__
 
     def _fetch(self, url: str) -> str | None:
         """Fetch a URL and return its text content, or None on failure."""
@@ -139,15 +150,15 @@ class TeeItUpProvider(SearchProvider):
     def fetch_availability(self, request: SearchRequest) -> list[dict]:
         """Fetch availability from the TeeItUp API for this course.
 
-        Constructs the API request with the facility ID and current date,
-        then returns parsed tee-time slots.
+        Queries the requested date (in course-local time), then returns the
+        slots that fall on that date, inside the requested time window, and
+        that can seat ``request.players`` players.
         """
 
-        tz = ZoneInfo("America/New_York")
-        current = datetime.now(tz).date()
+        tz = ZoneInfo(COURSE_TIMEZONE)
         query = urlencode(
             {
-                "date": current.isoformat(),
+                "date": request.date.isoformat(),
                 "facilityIds": self.facility_id,
                 "returnPromotedRates": "true",
             }
@@ -156,56 +167,57 @@ class TeeItUpProvider(SearchProvider):
 
         self._log(f"fetch_availability called with url: {url}")
         payload = self._fetch_json(url)
-        if payload is None:
-            # API request failed (exception was logged in _fetch_json)
+        if not payload:
+            # Request failed (logged in _fetch_json) or the API returned nothing.
             return []
-        elif len(payload) == 0:
-            # API returned zero results
-            return []
-        else:
-            # API returned data with tee-times
-            pass  # continue processing below
+
+        earliest = request.earliest_time or time.min
+        latest = request.latest_time or time.max
+        # The window is expressed in local wall-clock time; compare against the
+        # slot's local wall-clock time, not the UTC instant the API returns.
+        window_start = datetime.combine(request.date, earliest, tzinfo=tz)
+        window_end = datetime.combine(request.date, latest, tzinfo=tz)
 
         seen_times: set[time] = set()
         results: list[dict] = []
 
         for day in payload:
-            tees = day.get("teetimes", [])
-            total = day.get("totalAvailableTeetimes", 0)
-            if total == 0:
-                continue
-
-            for tee in tees:
+            for tee in day.get("teetimes") or []:
                 try:
-                    start = (
-                        datetime.fromisoformat(
-                            tee["teetime"].replace("Z", "+00:00")
-                        )  # noqa: E501
-                        .astimezone(tz)
-                        .time()
-                    )
-
-                    earliest = request.earliest_time or time.min
-                    latest = request.latest_time or time.max
-                    if earliest <= start <= latest:
-                        for rate in tee.get("rates", []):
-                            if request.players in rate.get(
-                                "allowedPlayers", []
-                            ):  # noqa: E501
-                                if start not in seen_times:
-                                    seen_times.add(start)
-                                    results.append(
-                                        {
-                                            "start_time": start,
-                                            "course_name": self.x_be_alias,
-                                            "players": request.players,
-                                            "distance_miles": 4.0,
-                                        }
-                                    )
-                                break
+                    start = datetime.fromisoformat(
+                        tee["teetime"].replace("Z", "+00:00")
+                    ).astimezone(tz)
                 except (KeyError, TypeError, ValueError):
+                    self._log(f"skipping unparseable teetime: {tee.get('teetime')!r}")
                     continue
 
+                # Guard against the API returning slots from an adjacent day.
+                if start.date() != request.date:
+                    continue
+                if not (window_start <= start <= window_end):
+                    continue
+                if start.time() in seen_times:
+                    continue
+
+                rates = tee.get("rates") or []
+                if not any(
+                    request.players in (rate.get("allowedPlayers") or [])
+                    for rate in rates
+                ):
+                    continue
+
+                seen_times.add(start.time())
+                results.append(
+                    {
+                        "date": request.date,
+                        "start_time": start.time(),
+                        "course_name": self.x_be_alias,
+                        "players": request.players,
+                        "distance_miles": 4.0,
+                    }
+                )
+
+        self._log_result("fetch_availability", bool(results), len(results))
         return results
 
     def search(self, request: SearchRequest) -> list[TeeTimeOption]:
@@ -223,6 +235,7 @@ class TeeItUpProvider(SearchProvider):
                 TeeTimeOption(
                     provider=self.name,
                     course_name=item["course_name"],
+                    date=item["date"],
                     start_time=item["start_time"],
                     players=item["players"],
                     distance_miles=item["distance_miles"],
