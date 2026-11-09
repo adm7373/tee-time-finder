@@ -16,7 +16,9 @@ The initial endpoints are:
 - `GET /config` — safe client defaults, including ZIP `02169`
 - `POST /search` — Cognito-protected search contract using the temporary mock provider
 
-Cognito settings are loaded from `.env` locally and should come from AWS Secrets Manager or Parameter Store in deployment. The `/search` endpoint requires a Cognito access token and validates its signature, issuer, expiration, token type, and app client ID. `/health` and `/config` remain public.
+Cognito settings are loaded from `.env` locally and are injected into the Lambda as
+plain environment variables by Terraform in deployment. They identify the user pool
+and app client, not a user or a credential, so nothing here needs a secret store. The `/search` endpoint requires a Cognito access token and validates its signature, issuer, expiration, token type, and app client ID. `/health` and `/config` remain public.
 
 ## Cognito sign-in configuration
 

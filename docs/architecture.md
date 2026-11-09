@@ -17,7 +17,7 @@ Booking is intentionally disabled in the first release. To prepare for it, keep 
 - `BookingRequest`: references a selected result and the requested player details, but never contains a password or payment credentials.
 - `BookingResult`: reports a provider reference and status without persisting sensitive authentication material.
 
-The booking provider must re-check the selected slot before attempting a reservation. A booking attempt should be idempotent where the provider permits it, and all provider-specific authentication should be injected at runtime from a secret manager or isolated browser/session service.
+The booking provider must re-check the selected slot before attempting a reservation. A booking attempt should be idempotent where the provider permits it, and all provider-specific authentication should be injected at runtime from an isolated browser/session service.
 
 ## Privacy and access
 

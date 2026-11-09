@@ -1,1 +1,0 @@
-# secrets.tf removed - TeeItUp credentials not currently required by the app

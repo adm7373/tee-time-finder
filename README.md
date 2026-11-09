@@ -7,7 +7,7 @@ A private, personal tool for searching local golf tee times by ZIP code, date, a
 - Avoid GolfNow.
 - Keep the application private and access-controlled.
 - Never commit usernames, passwords, session cookies, API keys, or other account information.
-- Use a secret manager or local environment configuration for credentials.
+- Use local environment configuration for credentials.
 - Respect each booking site's terms, robots policies, rate limits, and authentication requirements.
 - Treat booking as an explicit user-confirmed action; searching and presenting options should be separate from placing a reservation.
 - The default search ZIP code is `02169`; it must remain overridable per search and must not be treated as a credential.
@@ -15,7 +15,7 @@ A private, personal tool for searching local golf tee times by ZIP code, date, a
 
 ## Development
 
-Local secrets belong in an untracked `.env` file or an approved secret manager. See `.env.example` when configuration is added.
+Local configuration belongs in an untracked `.env` file. See `.env.example` when configuration is added.
 
 ## Initial search contract
 
@@ -34,10 +34,10 @@ Search providers should expose availability only. A future booking flow should u
 
 1. Re-checks availability immediately before booking.
 2. Requires an explicit confirmation from the user.
-3. Keeps credentials and browser sessions in a secret manager or isolated runtime.
+3. Keeps credentials and browser sessions in an isolated runtime.
 4. Returns a provider booking reference without storing passwords or payment data.
 5. Records auditable status transitions such as `available`, `booking_requested`, `confirmed`, and `failed`.
 
 ## Deployment direction
 
-The initial design should favor low-cost AWS services and a small private surface area. Candidate components include a private web application, a lightweight scheduled/search backend, and AWS Secrets Manager or Parameter Store for sensitive configuration. The final architecture will depend on the number and type of booking sites involved.
+The initial design should favor low-cost AWS services and a small private surface area. Candidate components include a private web application and a lightweight scheduled/search backend. The final architecture will depend on the number and type of booking sites involved.
