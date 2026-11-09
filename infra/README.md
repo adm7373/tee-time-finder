@@ -30,3 +30,7 @@ The workflow in `.github/workflows/terraform.yml` uses GitHub OIDC to assume an 
 - A protected GitHub `production` environment if manual approval is desired before `apply`
 
 The IAM role needs only the permissions required by the Terraform resources and the S3 state bucket. The state bucket should have versioning, encryption, public access blocked, and restricted access for this role.
+
+That role is **not managed by Terraform**. It is created once by hand from
+`bootstrap/github-actions-policy.json`; see `bootstrap/README.md` for the
+reasoning, the creation commands, and how to change its permissions.
