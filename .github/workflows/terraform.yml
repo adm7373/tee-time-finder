@@ -35,12 +35,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Pull requests can only look, never change anything: they assume a
+      # read-only role if one is configured, and fall back to validate-only when
+      # it is not. A PR cannot use the deploy role, so the worst a bad PR can do
+      # is show a wrong plan.
       - name: Configure AWS credentials
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && secrets.AWS_PLAN_ROLE_ARN != '')
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ vars.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ github.event_name == 'push' && secrets.AWS_ROLE_ARN || secrets.AWS_PLAN_ROLE_ARN }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -59,7 +63,7 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && secrets.AWS_PLAN_ROLE_ARN != '')
         run: >-
           terraform init -input=false
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
@@ -67,7 +71,7 @@ jobs:
 
       - name: Terraform init without backend for pull requests
         working-directory: infra
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && secrets.AWS_PLAN_ROLE_ARN == ''
         run: terraform init -input=false -backend=false
 
       - name: Terraform validate
@@ -75,9 +79,37 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan
+        id: plan
         working-directory: infra
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && secrets.AWS_PLAN_ROLE_ARN != '')
         run: terraform plan -input=false -no-color
+
+      # The whole point of planning on a PR: the diff has to be visible in the
+      # review, including "the deploy role cannot do this yet".
+      - name: Comment the plan on the pull request
+        if: github.event_name == 'pull_request' && steps.plan.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+        with:
+          script: |
+            const body = [
+              '### Terraform plan',
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```terraform',
+              (process.env.PLAN || '(no output)').slice(0, 60000),
+              '```',
+              '',
+              '</details>',
+            ].join('\n')
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            })
 
   apply:
     name: Terraform apply

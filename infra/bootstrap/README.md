@@ -88,6 +88,57 @@ aws iam put-role-policy \
 Then re-run the workflow. IAM changes take effect within seconds, but a token
 minted before the change keeps its old permissions until it expires.
 
+## The plan role
+
+Pull requests plan as well as validate, which needs a second role that can read
+state and describe resources but change nothing. It is optional: if the
+`AWS_PLAN_ROLE_ARN` repository secret is absent, pull requests fall back to
+`fmt` + `validate` only, exactly as before.
+
+Trust is the same as the deploy role except the subject is the pull request
+itself, which is broader — any PR to this repo can assume it. That is why it is
+read-only.
+
+```bash
+ACCOUNT=550968370453
+ROLE=tee-time-finder-github-actions-terraform-plan
+
+cat > /tmp/trust-plan.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::${ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+      },
+      "StringLike": {
+        "token.actions.githubusercontent.com:sub": "repo:adm7373@12490173/tee-time-finder@1443696246:pull_request"
+      }
+    }
+  }]
+}
+JSON
+
+aws iam create-role --role-name "$ROLE" --assume-role-policy-document file:///tmp/trust-plan.json
+
+aws iam put-role-policy \
+  --role-name "$ROLE" \
+  --policy-name tee-time-finder-terraform-plan \
+  --policy-document file://infra/bootstrap/github-actions-plan-policy.json
+
+gh secret set AWS_PLAN_ROLE_ARN --body "arn:aws:iam::${ACCOUNT}:role/${ROLE}"
+```
+
+The plan role's permissions are in `github-actions-plan-policy.json` and are all
+read operations. If a PR's plan starts failing with AccessDenied, that file is
+missing an action the provider needs during refresh — add it there, not to the
+deploy role.
+
 ## Two things this role deliberately cannot do
 
 - **Create or modify IAM roles.** The only IAM resources it may touch are the
