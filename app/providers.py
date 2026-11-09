@@ -1,6 +1,8 @@
 from datetime import time, datetime
+from functools import lru_cache
 import time as _time
 import logging
+import certifi
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -33,6 +35,12 @@ class SearchProvider:
 #: All configured courses are in New England; the TeeItUp API returns UTC
 #: instants, which must be converted before comparing against a local window.
 COURSE_TIMEZONE = "America/New_York"
+
+
+@lru_cache(maxsize=1)
+def _tls_context() -> ssl.SSLContext:
+    """A verifying TLS context backed by certifi's CA bundle."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class TeeItUpProvider(SearchProvider):
@@ -77,8 +85,9 @@ class TeeItUpProvider(SearchProvider):
     def _fetch_json(self, url: str) -> object:
         """Fetch JSON from a URL with TeeItUp headers.
 
-        Includes the ``x-be-alias`` header and a standard User-Agent.
-        Handles SSL certificate issues gracefully for local development.
+        TLS certificates are always verified, using certifi's CA bundle rather
+        than whatever the interpreter happens to ship: a Lambda runtime and a
+        local Python build can otherwise disagree about trusted roots.
         """
 
         now = _time.time()
@@ -96,22 +105,13 @@ class TeeItUpProvider(SearchProvider):
             },
         )
         try:
-            ctx = ssl.create_default_context()
-            with urlopen(request, timeout=15, context=ctx) as response:
+            with urlopen(request, timeout=15, context=_tls_context()) as response:
                 return json.loads(response.read())
         except Exception as e:
             logging.getLogger(__name__).error(
                 f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
             )
-            # Fallback for local development (Python 3.15 certificate issues)
-            try:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                with urlopen(request, timeout=15, context=ctx) as response:
-                    return json.loads(response.read())
-            except Exception:
-                return None
+            return None
 
     def _log(self, message: str):
         """Log a message at debug level."""
