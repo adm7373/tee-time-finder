@@ -75,17 +75,35 @@ gh secret set AWS_ROLE_ARN --body "arn:aws:iam::${ACCOUNT}:role/${ROLE}"
 ## Changing the permissions
 
 This is the step that no longer happens by itself. When Terraform needs a new
-permission, edit `github-actions-policy.json`, then:
+permission, edit `github-actions-policy.json`, then — from the `infra/`
+directory:
 
 ```bash
 aws iam put-role-policy \
   --role-name tee-time-finder-github-actions-terraform \
   --policy-name tee-time-finder-terraform-resources \
-  --policy-document file://infra/bootstrap/github-actions-policy.json
+  --policy-document file://bootstrap/github-actions-policy.json
 ```
 
 Then re-run the workflow. IAM changes take effect within seconds, but a token
 minted before the change keeps its old permissions until it expires.
+
+## Two things this role deliberately cannot do
+
+- **Create or modify IAM roles.** The only IAM resources it may touch are the
+  GitHub OIDC provider and the Lambda execution role this project owns. Adding a
+  new role to `infra/` means creating it here first — a one-off, by hand.
+- **Escalate itself.** Because it cannot write role policies, the permissions
+  above are the ceiling: no merge can widen them.
+
+## Pitfall: the role cannot remove itself from Terraform
+
+Terraform destroys a resource by calling the API to delete it. If a resource is
+removed from the configuration while the role is still in state, the next apply
+tries `iam:DeleteRole` — which this role is (correctly) not allowed to do. Do the
+`state rm` in the section above *before* merging any change that removes an IAM
+resource, or the apply fails with an AccessDenied on `iam:DeleteRole` or
+`iam:CreateRole`.
 
 ## Removing it from Terraform (one-off)
 

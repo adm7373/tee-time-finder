@@ -39,29 +39,14 @@
       "Resource": "*"
     },
     {
-      "Sid": "IamOidcAndLambdaRole",
+      "Sid": "IamOidcProviderAndLambdaRole",
       "Effect": "Allow",
       "Action": [
         "iam:CreateOpenIDConnectProvider",
         "iam:GetOpenIDConnectProvider",
-        "iam:DeleteOpenIDConnectProvider",
-        "iam:CreateRole",
-        "iam:GetRole",
-        "iam:DeleteRole",
-        "iam:UpdateAssumeRolePolicy",
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:ListRolePolicies",
-        "iam:GetRolePolicy",
-        "iam:ListAttachedRolePolicies",
-        "iam:TagRole",
-        "iam:AttachRolePolicy"
+        "iam:DeleteOpenIDConnectProvider"
       ],
-      "Resource": [
-        "arn:aws:iam::550968370453:oidc-provider/token.actions.githubusercontent.com",
-        "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution",
-        "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution/*"
-      ]
+      "Resource": "arn:aws:iam::550968370453:oidc-provider/token.actions.githubusercontent.com"
     },
     {
       "Sid": "LambdaAndApiGateway",
