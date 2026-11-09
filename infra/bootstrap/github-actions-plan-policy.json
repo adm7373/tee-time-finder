@@ -1,0 +1,82 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TerraformState",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketVersioning"
+      ],
+      "Resource": [
+        "arn:aws:s3:::tee-time-finder-terraform-state-550968370453",
+        "arn:aws:s3:::tee-time-finder-terraform-state-550968370453/tee-time-finder/*"
+      ]
+    },
+    {
+      "Sid": "CognitoDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:GetUserPoolMfaConfig",
+        "cognito-idp:ListUserPools",
+        "cognito-idp:ListUserPoolClients",
+        "cognito-idp:DescribeUserPoolDomain",
+        "cognito-idp:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamRead",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetOpenIDConnectProvider",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "arn:aws:iam::550968370453:oidc-provider/token.actions.githubusercontent.com",
+        "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution"
+      ]
+    },
+    {
+      "Sid": "LambdaRead",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetPolicy",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ApiGatewayRead",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDbRead",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-geocode",
+        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-geocode/*"
+      ]
+    }
+  ]
+}

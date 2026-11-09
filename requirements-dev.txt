@@ -1,0 +1,6 @@
+# Test-only dependencies. Kept out of requirements.txt so they don't ship in the
+# Lambda package: `pip install -r requirements.txt --target build/lambda` builds
+# what deploy needs, and `-r requirements-dev.txt` adds what the tests need.
+-r requirements.txt
+pytest>=8.0,<10.0
+httpx>=0.27,<1.0
