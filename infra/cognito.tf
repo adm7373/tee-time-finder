@@ -24,8 +24,8 @@ resource "aws_cognito_user_pool_client" "web" {
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["openid", "email"]
   supported_identity_providers         = ["COGNITO"]
-  callback_urls                        = [aws_apigatewayv2_api.http.api_endpoint]
-  logout_urls                          = [aws_apigatewayv2_api.http.api_endpoint]
+  callback_urls                        = ["${aws_apigatewayv2_api.http.api_endpoint}/$default"]
+  logout_urls                          = ["${aws_apigatewayv2_api.http.api_endpoint}/$default"]
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
