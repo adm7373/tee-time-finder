@@ -15,6 +15,7 @@ class SearchRequest(BaseModel):
 class TeeTimeOption(BaseModel):
     provider: str
     course_name: str
+    date: date
     start_time: time
     players: int
     distance_miles: float
