@@ -42,6 +42,21 @@ COURSE_QUERIES = {
     "17927": ["Ponkapoag Golf Course, Canton, MA"],
     "16026": ["Braintree Municipal Golf Course, Braintree, MA"],
     "17943": ["Presidents Golf Course, Quincy, MA"],
+    "5719": ["Newton Commonwealth Golf Course, Newton, MA"],
+    "17032": [
+        "William J. Devine Golf Course, Boston, MA",
+        "Franklin Park Golf Course, Boston, MA",
+    ],
+    "12116": ["Cedar Hill Golf Course, Stoughton, MA"],
+    "11063": ["Rockland Golf Course, Rockland, MA"],
+    "9146": ["Green Harbor Golf Club, Marshfield, MA"],
+    "4557": ["Wentworth Hills Country Club, Plainville, MA"],
+    "6696": ["Lakeville Country Club, Lakeville, MA"],
+    "15487": ["Stone-E-Lea Golf Course, Attleboro, MA"],
+    "10968": ["Plymouth Country Club, Plymouth, MA"],
+    "4839": ["Crosswinds Golf Club, Plymouth, MA"],
+    "6345": ["Waverly Oaks Golf Club, Plymouth, MA"],
+    "4981": ["Pinehills Golf Club, Plymouth, MA"],
 }
 
 
