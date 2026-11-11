@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     default_search_zip: str = "02169"
+    default_radius: float = 25.0
     cognito_region: str = "us-east-1"
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
 
     #: DynamoDB table holding cached ZIP and course coordinates.
     geocode_table_name: str | None = None
+    #: DynamoDB table where discovered courses and booking fingerprints live.
+    courses_table_name: str | None = None
     #: Identifies this app to Nominatim, whose usage policy requires it.
     nominatim_user_agent: str = "tee-time-finder/0.1 (personal tool)"
 

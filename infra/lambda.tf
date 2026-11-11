@@ -45,6 +45,53 @@ resource "aws_lambda_function" "api" {
       COGNITO_REDIRECT_URI = local.cognito_callback_url
       # Where cached ZIP and course coordinates live; see infra/geocode.tf.
       GEOCODE_TABLE_NAME = aws_dynamodb_table.geocode.name
+      # Where discovered courses and booking fingerprints live; see courses.tf.
+      COURSES_TABLE_NAME = aws_dynamodb_table.courses.name
+    }
+  }
+}
+
+
+# --- discovery and fingerprint workers ---------------------------------------
+#
+# These are deliberately NOT behind API Gateway. They run on a schedule (see
+# schedules.tf), do slow outbound scraping, and need minutes rather than the
+# API's 30-second budget. They share the Lambda execution role and the same
+# deployment package as the API — the handler entry points differ.
+
+resource "aws_lambda_function" "discover" {
+  function_name    = "${var.project_name}-discover"
+  role             = aws_iam_role.lambda_execution.arn
+  runtime          = "python3.12"
+  handler          = "app.discovery.handler"
+  filename         = data.archive_file.lambda.output_path
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+  timeout          = 600
+  memory_size      = 512
+
+  environment {
+    variables = {
+      DEFAULT_SEARCH_ZIP = "02169"
+      DEFAULT_RADIUS     = "25"
+      GEOCODE_TABLE_NAME = aws_dynamodb_table.geocode.name
+      COURSES_TABLE_NAME = aws_dynamodb_table.courses.name
+    }
+  }
+}
+
+resource "aws_lambda_function" "fingerprint" {
+  function_name    = "${var.project_name}-fingerprint"
+  role             = aws_iam_role.lambda_execution.arn
+  runtime          = "python3.12"
+  handler          = "app.fingerprint_handler.handler"
+  filename         = data.archive_file.lambda.output_path
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+  timeout          = 600
+  memory_size      = 512
+
+  environment {
+    variables = {
+      COURSES_TABLE_NAME = aws_dynamodb_table.courses.name
     }
   }
 }
