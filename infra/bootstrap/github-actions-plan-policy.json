@@ -88,6 +88,16 @@
         "events:ListTargetsByRule"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "BudgetsRead",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:DescribeBudgetActionsForBudget",
+        "budgets:DescribeBudgetAction"
+      ],
+      "Resource": "*"
     }
   ]
 }

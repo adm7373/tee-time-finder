@@ -135,6 +135,20 @@
         "events:TagResource"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "BudgetsAndSpendStop",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget",
+        "budgets:CreateBudgetAction",
+        "budgets:UpdateBudgetAction",
+        "budgets:DeleteBudgetAction",
+        "budgets:DescribeBudgetActionsForBudget",
+        "budgets:DescribeBudgetAction"
+      ],
+      "Resource": "*"
     }
   ]
 }
