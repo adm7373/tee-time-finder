@@ -1,22 +1,25 @@
 """Course discovery: find golf courses near a ZIP and record the good ones.
 
-A discovery run answers "what exists near me" and writes each usable course to
-the courses table. The next step — figuring out how each course takes bookings
-— is the fingerprint Lambda's job; this one only geocodes and filters.
+A run does one of two things, or both:
 
-A run takes ``zip_code`` and ``radius_miles`` (or nothing, for the defaults)
-and, for each Nominatim golf-course hit inside the box:
+**Sweep** — ask Nominatim what golf courses exist in a box and write a row for
+any that are not already known. The OSM course list changes on the order of
+months, so the schedule sweeps on the first run of the month and no other
+night. Re-querying the same three boxes nightly would cost three requests to
+learn nothing, which is the one pattern Nominatim's usage policy is clearest
+about.
 
-- drops what is outside the real radius, and what is already known;
-- for the nearest few unknown courses, probes TeeItUp aliases;
-- writes a row per course: coordinates, website, and, when a TeeItUp engine
-  was found, its alias and facility ID.
+**Backlog** — work through rows already in the table that are still marked
+``unknown``, probing TeeItUp aliases. This is what a nightly run mostly does.
+Rows are ordered by fewest attempts first, so the per-run probe budget walks
+the whole set instead of grinding on the same nearest ten, and every row
+records how many times it has been tried so a course that never resolves is
+retried on a widening backoff rather than every night forever.
 
-``known`` rows (already in the table) and ``already_configured`` rows (a
-facility ID the app already searches) are counted, not re-probed. ``error`` is
-only for a run-level failure — a bad ZIP, a Nominatim outage — never for one
-course turning out to be unusable; unusable courses simply earn a row that says
-so.
+The distinction that matters: ``known`` means *classified*, not *has a row*. A
+row with ``provider: "unknown"`` is a course we know exists but have not worked
+out, and it stays eligible until it is either classified or has exhausted its
+attempts.
 """
 
 import datetime
@@ -30,17 +33,83 @@ from .teeitup_probe import confirm_course, facility_id_for, slug_candidates
 logger = logging.getLogger(__name__)
 
 #: How many unknown courses a single run probes against TeeItUp. Bounding this
-#: keeps a scheduled run inside Lambda's time limit; the schedule re-runs often
-#: enough that everything unknown is eventually covered.
+#: keeps a scheduled run inside Lambda's time limit; the backlog order means
+#: the next run picks up where this one stopped.
 MAX_PROBES_PER_RUN = 10
+
+#: Probe attempts before a course is left alone. A course that has failed this
+#: many times is more likely absent from TeeItUp than unlucky, and the
+#: fingerprint Lambda (which tries real websites) is the better net for it.
+MAX_ATTEMPTS = 5
+
+#: Providers that mean "we know what this is". Anything else is still eligible.
+CLASSIFIED_PROVIDERS = frozenset(
+    {
+        "teeitup",
+        "teeitup-confirmed",
+        "golfnow",
+        "chronogolf",
+        "foreup",
+        "clubcaddie",
+        "golfback",
+        "teesnap",
+        "gallus",
+        "supreme-golf",
+        "other",
+    }
+)
+
+
+def attempts_for(row: dict | None) -> int:
+    """How many discovery probes a row has had, tolerating old/handmade rows."""
+    if not row:
+        return 0
+    try:
+        return int(row.get("discovery_attempts") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def is_classified(row: dict | None) -> bool:
+    return bool(row) and row.get("provider") in CLASSIFIED_PROVIDERS
+
+
+def is_exhausted(row: dict | None) -> bool:
+    return attempts_for(row) >= MAX_ATTEMPTS
+
+
+def needs_probe(row: dict | None) -> bool:
+    """A row worth probing: not classified, and attempts left."""
+    return not is_classified(row) and not is_exhausted(row)
+
+
+def due_for_sweep(last_swept: str | None, now: datetime.datetime) -> bool:
+    """True on the first run of a month, or when we have never swept.
+
+    Monthly is generous for a list that changes a few times a year, and it keeps
+    the nightly job honest: it only asks Nominatim when there is a reason to
+    expect an answer that differs.
+    """
+    if not last_swept:
+        return True
+    try:
+        swept = datetime.datetime.fromisoformat(last_swept)
+    except ValueError:
+        return True
+    if swept.tzinfo is None:
+        swept = swept.replace(tzinfo=datetime.timezone.utc)
+    return (now.year, now.month) != (swept.year, swept.month)
 
 
 @dataclass
 class DiscoveryResult:
     run_id: str
+    swept: bool = False
     added: int = 0
+    probed: int = 0
     tee_it_up: int = 0
     known: int = 0
+    exhausted: int = 0
     already_configured: int = 0
     skipped_outside_radius: int = 0
     error: str = ""
@@ -96,6 +165,181 @@ class CourseStore:
         except Exception as error:
             logger.warning("course write failed for %s: %s", item.get("pk"), error)
 
+    def scan(self) -> list[dict]:
+        """Every course row, or none if the table is missing or unhappy."""
+        if self._table is None:
+            return []
+        rows: list[dict] = []
+        start_key = None
+        while True:
+            kwargs: dict = {}
+            if start_key:
+                kwargs["ExclusiveStartKey"] = start_key
+            try:
+                page = self._table.scan(**kwargs)
+            except Exception as error:
+                logger.warning("course scan failed: %s", error)
+                return rows
+            rows.extend(page.get("Items", []))
+            start_key = page.get("LastEvaluatedKey")
+            if not start_key:
+                return rows
+
+    def meta(self, key: str) -> dict | None:
+        """A bookkeeping row that is not a course, e.g. the last sweep time."""
+        if self._table is None:
+            return None
+        try:
+            item = self._table.get_item(Key={"pk": f"meta#{key}"})
+            return item.get("Item")
+        except Exception as error:
+            logger.warning("meta lookup failed for %s: %s", key, error)
+            return None
+
+    def put_meta(self, key: str, value: str) -> None:
+        self.put({"pk": f"meta#{key}", "value": value})
+
+
+def _probe(row: dict, configured_facility_ids: set[str], check_date: str) -> str:
+    """Try TeeItUp aliases for one course, updating ``row`` in place.
+
+    Returns what happened: ``teeitup`` (new pairing confirmed), ``already``
+    (a facility the app already searches), or ``unknown``.
+    """
+    for alias in slug_candidates(row["name"]):
+        facility_id = facility_id_for(alias)
+        if not facility_id:
+            continue
+        if facility_id in configured_facility_ids:
+            row.update(
+                {
+                    "provider": "teeitup",
+                    "booking_domain": f"{alias}.book.teeitup.golf",
+                    "facility_id": facility_id,
+                }
+            )
+            return "already"
+        if confirm_course(alias, facility_id, check_date):
+            row.update(
+                {
+                    "provider": "teeitup-confirmed",
+                    "booking_domain": f"{alias}.book.teeitup.golf",
+                    "facility_id": facility_id,
+                }
+            )
+            return "teeitup"
+    return "unknown"
+
+
+def _sweep(
+    result: DiscoveryResult,
+    zip_code: str,
+    radius_miles: float,
+    store: CourseStore,
+    geocode_store: GeocodeStore,
+    geocoder: Geocoder,
+    configured_facility_ids: set[str],
+) -> None:
+    """Ask Nominatim what exists in the box and record anything new."""
+    origin = geocode_store.zip(zip_code, geocoder)
+    if origin is None:
+        result.error = f"could not geocode ZIP {zip_code}"
+        return
+
+    places = geocoder.golf_course_places(origin, radius_miles)
+    # Nominatim returns a course as both a node and a way; keep one per name.
+    deduped: dict[str, CoursePlace] = {}
+    for place in places:
+        prior = deduped.get(place.name)
+        if prior is None or distance_miles(origin, place.coords) < distance_miles(
+            origin, prior.coords
+        ):
+            deduped[place.name] = place
+
+    for place in deduped.values():
+        miles = distance_miles(origin, place.coords)
+        if miles > radius_miles:
+            result.skipped_outside_radius += 1
+            continue
+        existing = store.get(place.name)
+        if existing is not None:
+            # Already recorded. Its classification is the backlog pass's
+            # business, not this one's; a sweep only adds what is missing.
+            if is_classified(existing):
+                result.known += 1
+            continue
+
+        row = {
+            "pk": f"course#{CourseStore.slug(place.name)}",
+            "name": place.name,
+            "lat": str(place.coords.lat),
+            "lon": str(place.coords.lon),
+            "display_name": place.coords.display_name,
+            "distance_from_zip": round(miles, 1),
+            "zip_code": zip_code,
+            "website": place.website,
+            "provider": "unknown",
+            "discovery_attempts": 0,
+            "last_checked": result.run_id,
+        }
+        # A newly found course is the likeliest to resolve, so probe it now
+        # rather than waiting for the backlog pass to reach it.
+        if result.probed < MAX_PROBES_PER_RUN:
+            result.probed += 1
+            row["discovery_attempts"] = 1
+            outcome = _probe(row, configured_facility_ids, _today())
+            if outcome == "teeitup":
+                result.tee_it_up += 1
+                result.details.append(
+                    f"{row['name']} -> {row['booking_domain']} "
+                    f"(facility {row['facility_id']})"
+                )
+            elif outcome == "already":
+                result.already_configured += 1
+
+        store.put(row)
+        result.added += 1
+
+
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
+def _backlog(
+    result: DiscoveryResult,
+    store: CourseStore,
+    configured_facility_ids: set[str],
+) -> None:
+    """Work through recorded courses that are still unclassified.
+
+    Ordered by fewest attempts first, so the probe budget covers the whole set
+    over successive runs instead of returning to the same nearest ten. Each
+    row's attempt count is incremented and written back even when nothing
+    resolved, which is what gives a hopeless course a finite number of tries.
+    """
+    rows = [row for row in store.scan() if row.get("pk", "").startswith("course#")]
+    candidates = [row for row in rows if needs_probe(row)]
+    candidates.sort(key=lambda row: (attempts_for(row), row.get("name", "")))
+
+    for row in candidates:
+        if result.probed >= MAX_PROBES_PER_RUN:
+            break
+        result.probed += 1
+        row["discovery_attempts"] = attempts_for(row) + 1
+        row["last_checked"] = result.run_id
+        outcome = _probe(row, configured_facility_ids, _today())
+        if outcome == "teeitup":
+            result.tee_it_up += 1
+            result.details.append(
+                f"{row['name']} -> {row['booking_domain']} "
+                f"(facility {row['facility_id']})"
+            )
+        elif outcome == "already":
+            result.already_configured += 1
+        if is_exhausted(row) and not is_classified(row):
+            result.exhausted += 1
+        store.put(row)
+
 
 def discover(
     zip_code: str = "02169",
@@ -107,13 +351,14 @@ def discover(
     configured_facility_ids: set[str] | None = None,
     date: str | None = None,
     run_id: str | None = None,
+    force_sweep: bool = False,
+    now: datetime.datetime | None = None,
 ) -> DiscoveryResult:
-    """Run one discovery pass and record what it found."""
+    """Run one discovery pass: sweep if due, then work the backlog."""
     from .providers import get_search_providers
 
-    result = DiscoveryResult(
-        run_id=run_id or datetime.datetime.now(datetime.timezone.utc).isoformat()
-    )
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    result = DiscoveryResult(run_id=run_id or now.isoformat())
     store = store or CourseStore(None)
     geocode_store = geocode_store or GeocodeStore(None)
     geocoder = geocoder or Geocoder("tee-time-finder/0.1 (personal tool)")
@@ -121,81 +366,23 @@ def discover(
         configured_facility_ids = {
             provider.facility_id for provider in get_search_providers()
         }
-    check_date = date or datetime.date.today().isoformat()
 
-    origin = geocode_store.zip(zip_code, geocoder)
-    if origin is None:
-        result.error = f"could not geocode ZIP {zip_code}"
-        return result
+    last_swept = (store.meta("last_sweep") or {}).get("value")
+    if force_sweep or due_for_sweep(last_swept, now):
+        _sweep(
+            result,
+            zip_code,
+            radius_miles,
+            store,
+            geocode_store,
+            geocoder,
+            configured_facility_ids,
+        )
+        if not result.error:
+            result.swept = True
+            store.put_meta("last_sweep", now.isoformat())
 
-    places = geocoder.golf_course_places(origin, radius_miles)
-    # Nominatim returns a course as both a node and a way; probe each name once.
-    deduped: dict[str, CoursePlace] = {}
-    for place in places:
-        prior = deduped.get(place.name)
-        if prior is None or distance_miles(origin, place.coords) < distance_miles(
-            origin, prior.coords
-        ):
-            deduped[place.name] = place
-
-    probes = 0
-    for place in sorted(
-        deduped.values(), key=lambda p: distance_miles(origin, p.coords)
-    ):
-        miles = distance_miles(origin, place.coords)
-        if miles > radius_miles:
-            result.skipped_outside_radius += 1
-            continue
-        if store.get(place.name) is not None:
-            result.known += 1
-            continue
-
-        row: dict = {
-            "pk": f"course#{CourseStore.slug(place.name)}",
-            "name": place.name,
-            "lat": str(place.coords.lat),
-            "lon": str(place.coords.lon),
-            "display_name": place.coords.display_name,
-            "distance_from_zip": round(miles, 1),
-            "zip_code": zip_code,
-            "website": place.website,
-            "provider": "unknown",
-            "last_checked": result.run_id,
-        }
-
-        if probes < MAX_PROBES_PER_RUN:
-            probes += 1
-            for alias in slug_candidates(place.name):
-                facility_id = facility_id_for(alias)
-                if not facility_id:
-                    continue
-                if facility_id in configured_facility_ids:
-                    row.update(
-                        {
-                            "provider": "teeitup",
-                            "booking_domain": f"{alias}.book.teeitup.golf",
-                            "facility_id": facility_id,
-                        }
-                    )
-                    result.already_configured += 1
-                    break
-                if confirm_course(alias, facility_id, check_date):
-                    row.update(
-                        {
-                            "provider": "teeitup-confirmed",
-                            "booking_domain": f"{alias}.book.teeitup.golf",
-                            "facility_id": facility_id,
-                        }
-                    )
-                    result.tee_it_up += 1
-                    result.details.append(
-                        f"{place.name} -> {alias} (facility {facility_id})"
-                    )
-                    break
-
-        store.put(row)
-        result.added += 1
-
+    _backlog(result, store, configured_facility_ids)
     return result
 
 
@@ -215,18 +402,21 @@ def handler(event: dict | None = None, context=None) -> dict:
     geocoder = Geocoder(settings.nominatim_user_agent)
 
     boxes: list[tuple[str, float]]
+    force_sweep = bool(event.get("force_sweep"))
     if "zip_code" in event or "radius_miles" in event:
         boxes = [
             ("custom", float(event.get("radius_miles") or settings.default_radius))
         ]
         zip_code = str(event.get("zip_code") or settings.default_search_zip)
+        # An explicit box is a request to look there, so sweep it regardless of
+        # when the last scheduled sweep ran.
+        force_sweep = True
     else:
         boxes = list(SEARCH_BOXES)
         zip_code = settings.default_search_zip
 
-    total = DiscoveryResult(
-        run_id=datetime.datetime.now(datetime.timezone.utc).isoformat()
-    )
+    now = datetime.datetime.now(datetime.timezone.utc)
+    total = DiscoveryResult(run_id=now.isoformat())
     for label, radius in boxes:
         result = discover(
             zip_code,
@@ -235,10 +425,15 @@ def handler(event: dict | None = None, context=None) -> dict:
             geocode_store=geocode_store,
             geocoder=geocoder,
             run_id=f"{total.run_id}#{label}",
+            force_sweep=force_sweep,
+            now=now,
         )
+        total.swept = total.swept or result.swept
         total.added += result.added
+        total.probed += result.probed
         total.tee_it_up += result.tee_it_up
         total.known += result.known
+        total.exhausted += result.exhausted
         total.already_configured += result.already_configured
         total.skipped_outside_radius += result.skipped_outside_radius
         total.details.extend(result.details)
@@ -246,19 +441,25 @@ def handler(event: dict | None = None, context=None) -> dict:
             total.error = result.error
 
     logger.info(
-        "discovery %s: added=%d teeitup=%d known=%d already=%d error=%r",
+        "discovery %s: swept=%s added=%d probed=%d teeitup=%d known=%d "
+        "exhausted=%d error=%r",
         total.run_id,
+        total.swept,
         total.added,
+        total.probed,
         total.tee_it_up,
         total.known,
-        total.already_configured,
+        total.exhausted,
         total.error,
     )
     return {
         "run_id": total.run_id,
+        "swept": total.swept,
         "added": total.added,
+        "probed": total.probed,
         "tee_it_up": total.tee_it_up,
         "known": total.known,
+        "exhausted": total.exhausted,
         "already_configured": total.already_configured,
         "skipped_outside_radius": total.skipped_outside_radius,
         "error": total.error,

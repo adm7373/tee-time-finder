@@ -23,6 +23,15 @@ class FakeTable:
     def put_item(self, Item):  # noqa: N803
         self.items[Item["pk"]] = Item
 
+    def scan(self, **kwargs):
+        items = list(self.items.values())
+        start = kwargs.get("ExclusiveStartKey") or {}
+        if start:
+            keys = list(self.items)
+            offset = keys.index(start["pk"]) + 1
+            items = items[offset:]
+        return {"Items": items}
+
 
 class FakeGeocoder:
     def __init__(self, origin, places):
@@ -123,7 +132,7 @@ def test_confirmed_teeitup_pairing_is_recorded(monkeypatch):
     row = store.get("Near CC")
     assert row["provider"] == "teeitup-confirmed"
     assert row["facility_id"] == "9999"
-    assert result.details == ["Near CC -> near-cc (facility 9999)"]
+    assert result.details == ["Near CC -> near-cc.book.teeitup.golf (facility 9999)"]
 
 
 def test_already_configured_facility_is_not_recounted(monkeypatch):
@@ -267,3 +276,188 @@ def test_guesses_prefer_the_osm_website():
         _course(website="https://real-site.com", display_name="Near CC, Quincy, MA")
     )
     assert guesses[0] == "https://real-site.com"
+
+
+# --- the nightly run must not re-sweep -------------------------------------
+
+
+def test_sweep_only_runs_on_the_first_run_of_a_month():
+    from app.discovery import due_for_sweep
+    import datetime
+
+    utc = datetime.timezone.utc
+    assert due_for_sweep(None, datetime.datetime(2026, 5, 14, tzinfo=utc))
+    assert due_for_sweep(
+        "2026-04-01T10:00:00+00:00", datetime.datetime(2026, 5, 14, tzinfo=utc)
+    )
+    # Same month: already swept, so no Nominatim request.
+    assert not due_for_sweep(
+        "2026-05-02T10:00:00+00:00", datetime.datetime(2026, 5, 14, tzinfo=utc)
+    )
+    # A corrupt timestamp should not silently disable discovery forever.
+    assert due_for_sweep("not-a-date", datetime.datetime(2026, 5, 14, tzinfo=utc))
+
+
+def test_second_run_in_a_month_makes_no_nominatim_request(monkeypatch):
+    """The whole point: a nightly run must not re-ask for the same list."""
+    import datetime
+
+    calls = []
+
+    class Counting(FakeGeocoder):
+        def golf_course_places(self, origin, radius_miles):
+            calls.append(radius_miles)
+            return super().golf_course_places(origin, radius_miles)
+
+    monkeypatch.setattr("app.discovery.facility_id_for", lambda alias: None)
+    geocoder = Counting(QUINCY, [_place()])
+    table = FakeTable()
+    from app.geo import GeocodeStore
+
+    geo_table = FakeTable()
+    geo_table.items["zip#02169"] = {"lat": "42.2", "lon": "-71.0"}
+    store = CourseStore("c", table=table)
+    geocode_store = GeocodeStore("g", table=geo_table)
+    utc = datetime.timezone.utc
+
+    first = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=geocode_store,
+        geocoder=geocoder,
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 14, 10, tzinfo=utc),
+    )
+    second = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=geocode_store,
+        geocoder=geocoder,
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 15, 10, tzinfo=utc),
+    )
+
+    assert first.swept and first.added == 1
+    assert not second.swept and second.added == 0
+    assert len(calls) == 1, "the second run should not have asked Nominatim"
+
+
+def test_unclassified_course_is_probed_again_next_run(monkeypatch):
+    """A row that says 'unknown' is a backlog item, not a known course."""
+    import datetime
+
+    monkeypatch.setattr("app.discovery.facility_id_for", lambda alias: None)
+    table = FakeTable()
+    table.items["course#old-cc"] = {
+        "pk": "course#old-cc",
+        "name": "Old CC",
+        "provider": "unknown",
+        "discovery_attempts": 1,
+    }
+    store = CourseStore("c", table=table)
+    from app.geo import GeocodeStore
+
+    result = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=GeocodeStore("g", table=FakeTable()),
+        geocoder=FakeGeocoder(QUINCY, []),
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 15, 10, tzinfo=datetime.timezone.utc),
+    )
+    assert result.probed == 1
+    assert table.items["course#old-cc"]["discovery_attempts"] == 2
+
+
+def test_classified_course_is_left_alone(monkeypatch):
+    import datetime
+
+    monkeypatch.setattr(
+        "app.discovery.facility_id_for",
+        lambda alias: (_ for _ in ()).throw(AssertionError("should not probe")),
+    )
+    table = FakeTable()
+    table.items["course#done-cc"] = {
+        "pk": "course#done-cc",
+        "name": "Done CC",
+        "provider": "golfnow",
+    }
+    store = CourseStore("c", table=table)
+    from app.geo import GeocodeStore
+
+    result = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=GeocodeStore("g", table=FakeTable()),
+        geocoder=FakeGeocoder(QUINCY, []),
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 15, 10, tzinfo=datetime.timezone.utc),
+    )
+    assert result.probed == 0
+
+
+def test_attempts_are_capped(monkeypatch):
+    import datetime
+
+    monkeypatch.setattr("app.discovery.facility_id_for", lambda alias: None)
+    table = FakeTable()
+    table.items["course#hopeless"] = {
+        "pk": "course#hopeless",
+        "name": "Hopeless CC",
+        "provider": "unknown",
+        "discovery_attempts": 5,
+    }
+    store = CourseStore("c", table=table)
+    from app.geo import GeocodeStore
+
+    result = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=GeocodeStore("g", table=FakeTable()),
+        geocoder=FakeGeocoder(QUINCY, []),
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 15, 10, tzinfo=datetime.timezone.utc),
+    )
+    assert result.probed == 0
+    assert table.items["course#hopeless"]["discovery_attempts"] == 5
+
+
+def test_backlog_order_reaches_past_the_nearest_ten(monkeypatch):
+    """The budget walks the whole set instead of grinding on the same ten."""
+    import datetime
+
+    monkeypatch.setattr("app.discovery.facility_id_for", lambda alias: None)
+    table = FakeTable()
+    for index in range(25):
+        table.items[f"course#c{index:02d}"] = {
+            "pk": f"course#c{index:02d}",
+            "name": f"C{index:02d}",
+            "provider": "unknown",
+            "discovery_attempts": 0,
+        }
+    # The first ten are already on their second try.
+    for index in range(10):
+        table.items[f"course#c{index:02d}"]["discovery_attempts"] = 2
+
+    store = CourseStore("c", table=table)
+    from app.geo import GeocodeStore
+
+    discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=GeocodeStore("g", table=FakeTable()),
+        geocoder=FakeGeocoder(QUINCY, []),
+        configured_facility_ids=set(),
+        now=datetime.datetime(2026, 5, 15, 10, tzinfo=datetime.timezone.utc),
+    )
+    # Least-tried first: the untouched ten, not the ones already at two.
+    assert all(
+        table.items[f"course#c{i:02d}"]["discovery_attempts"] == 1
+        for i in range(10, 20)
+    )
