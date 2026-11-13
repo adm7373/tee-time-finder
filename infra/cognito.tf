@@ -22,8 +22,10 @@ resource "aws_cognito_user_pool_client" "web" {
 
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
-  allowed_oauth_scopes                 = ["openid", "email"]
-  supported_identity_providers         = ["COGNITO"]
+  # `aws.cognito.signin.user.admin` is required for `cognito:groups` to appear
+  # in the access token; without it the admin check in app/admin.py never passes.
+  allowed_oauth_scopes         = ["openid", "email", "aws.cognito.signin.user.admin"]
+  supported_identity_providers = ["COGNITO"]
   # Must match the redirect URI the Lambda sends to /oauth2/token exactly, or
   # Cognito answers with error=redirect_mismatch. Both sides read the same
   # local, defined in lambda.tf, so they cannot drift apart.
@@ -40,4 +42,14 @@ resource "aws_cognito_user_pool_client" "web" {
 resource "aws_cognito_user_pool_domain" "main" {
   domain       = "tee-time-finder-${data.aws_caller_identity.current.account_id}"
   user_pool_id = aws_cognito_user_pool.main.id
+}
+
+# Admin group. Membership, not the endpoint, is the permission: the admin routes
+# in app/admin.py check for this group in the access token's `cognito:groups`.
+# Creating the group here and adding users out of band keeps the Terraform state
+# free of personal account information.
+resource "aws_cognito_user_group" "admins" {
+  name         = "admins"
+  user_pool_id = aws_cognito_user_pool.main.id
+  description  = "Can trigger the discovery and fingerprint workers from the admin page"
 }

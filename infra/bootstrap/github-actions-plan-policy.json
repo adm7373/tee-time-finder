@@ -75,8 +75,29 @@
       ],
       "Resource": [
         "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-geocode",
-        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-geocode/*"
+        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-geocode/*",
+        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-courses",
+        "arn:aws:dynamodb:us-east-1:550968370453:table/tee-time-finder-courses/*"
       ]
+    },
+    {
+      "Sid": "DiscoveryWorkersRead",
+      "Effect": "Allow",
+      "Action": [
+        "events:DescribeRule",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BudgetsRead",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:DescribeBudgetActionsForBudget",
+        "budgets:DescribeBudgetAction"
+      ],
+      "Resource": "*"
     }
   ]
 }

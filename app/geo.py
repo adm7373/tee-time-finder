@@ -63,6 +63,16 @@ def distance_miles(a: Coordinates, b: Coordinates) -> float:
     return 2 * EARTH_RADIUS_MILES * asin(sqrt(h))
 
 
+@dataclass(frozen=True)
+class CoursePlace:
+    """One Nominatim golf-course hit: where it is and where its website lives."""
+
+    name: str
+    coords: Coordinates
+    website: str = ""
+    display_name: str = ""
+
+
 class Geocoder:
     """Nominatim client that honours the one-request-per-second policy."""
 
@@ -98,13 +108,15 @@ class Geocoder:
         hits = self._get({"q": query, "format": "json", "limit": 1})
         return _first(hits)
 
-    def golf_courses_near(
+    def golf_course_places(
         self, origin: Coordinates, radius_miles: float
-    ) -> list[tuple[str, Coordinates]]:
-        """Golf courses within ``radius_miles``, as (name, coordinates) pairs.
+    ) -> list["CoursePlace"]:
+        """Golf courses around ``origin`` with coordinates and website if known.
 
         Nominatim has no radius search, so this asks inside a bounding box and
-        lets the caller apply the real distance.
+        lets the caller apply the real distance. ``extratags=1`` is requested
+        so candidates carry their website when OpenStreetMap has one — the
+        fingerprint step needs somewhere to start looking for a booking page.
         """
         lat_span = radius_miles / 69.0
         lon_span = radius_miles / (69.0 * max(cos(radians(origin.lat)), 0.1))
@@ -119,18 +131,41 @@ class Geocoder:
                 "limit": 50,
                 "bounded": 1,
                 "viewbox": viewbox,
+                "extratags": 1,
             }
         )
-        courses: list[tuple[str, Coordinates]] = []
+        places: list[CoursePlace] = []
         for hit in hits:
             coords = _first([hit])
             if coords is None:
                 continue
             # "Norwood Country Club, 400, Providence Highway, ..." -> first part
             name = hit.get("display_name", "").split(",")[0].strip()
-            if name:
-                courses.append((name, coords))
-        return courses
+            if not name:
+                continue
+            website = ((hit.get("extratags") or {}).get("website") or "").strip()
+            places.append(
+                CoursePlace(
+                    name=name,
+                    coords=coords,
+                    website=website,
+                    display_name=hit.get("display_name", ""),
+                )
+            )
+        return places
+
+    def golf_courses_near(
+        self, origin: Coordinates, radius_miles: float
+    ) -> list[tuple[str, Coordinates]]:
+        """Golf courses within ``radius_miles``, as (name, coordinates) pairs.
+
+        Thin wrapper over :meth:`golf_course_places` for callers that only need
+        a name and a point; discovery and seeding use the richer method.
+        """
+        return [
+            (place.name, place.coords)
+            for place in self.golf_course_places(origin, radius_miles)
+        ]
 
 
 def _first(hits: list[dict]) -> Coordinates | None:

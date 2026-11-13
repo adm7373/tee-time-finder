@@ -1,6 +1,10 @@
 # Terraform infrastructure
 
-This directory manages the initial AWS resources. It currently creates only a Cognito user pool and a public app client. It intentionally does not create a user or store any personal account information.
+This directory manages the AWS resources: a Cognito user pool and app client,
+the API Lambda and its HTTP API, two DynamoDB tables (cached coordinates, and
+discovered courses), the nightly discovery and fingerprint workers, and the
+cost budget that guards the lot. It intentionally does not create a user or
+store any personal account information.
 
 For local use, from this directory:
 
@@ -27,6 +31,7 @@ The workflow in `.github/workflows/terraform.yml` uses GitHub OIDC to assume an 
 - Repository variable `AWS_REGION`, such as `us-east-1`
 - Repository variable `TF_STATE_BUCKET`, an existing private S3 bucket for Terraform state
 - Repository secret `AWS_ROLE_ARN`, an IAM role trusted only by this repository and its intended branches/environments
+- Optional repository variable `ALERT_EMAIL`, where the cost budget sends its notifications
 - A protected GitHub `production` environment if manual approval is desired before `apply`
 
 The IAM role needs only the permissions required by the Terraform resources and the S3 state bucket. The state bucket should have versioning, encryption, public access blocked, and restricted access for this role.
@@ -34,3 +39,28 @@ The IAM role needs only the permissions required by the Terraform resources and 
 That role is **not managed by Terraform**. It is created once by hand from
 `bootstrap/github-actions-policy.json`; see `bootstrap/README.md` for the
 reasoning, the creation commands, and how to change its permissions.
+
+## Cost budget
+
+`budget.tf` is the guardrail against AWS's lack of a spend ceiling: going over
+the free tier bills at normal rates rather than switching services off. It
+creates a monthly budget scoped to this project's tag, not the whole account,
+with two thresholds that do different things:
+
+| | At | Effect |
+|---|---|---|
+| Notify | 100% of `monthly_budget_usd` (default $5) | Email to `ALERT_EMAIL` |
+| Act | `budget_action_threshold_percent` (default 400%, so $20) | Deny policy attached to the Lambda execution role; the two scheduled workers stop |
+
+Budgets detaches the policy again when spend falls back under the threshold or
+the month rolls over. The API keeps working throughout: Cognito sign-in needs
+no AWS permissions, and the deny policy only covers the two DynamoDB tables,
+so the failure mode is a stopped nightly sweep rather than a broken sign-in.
+
+Set the address with:
+
+```bash
+gh variable set ALERT_EMAIL --body "you@example.com"
+```
+
+Unset, the budget and its action still work; only the emails are skipped.

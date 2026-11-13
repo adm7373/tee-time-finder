@@ -21,6 +21,10 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  # Budget notifications address. Kept as a repository variable rather than a
+  # default in variables.tf so the address is not committed; unset, the budget
+  # is created without email notifications.
+  TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
 
 jobs:
   plan:

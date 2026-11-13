@@ -1,13 +1,13 @@
-"""Tests for the course-discovery helper's pure parts.
+"""Tests for the find_courses CLI's pure parts.
 
-The network-facing steps are exercised by running the script; what is worth
-pinning is the alias guessing, because a wrong guess silently reports a course
-as "not on TeeItUp" rather than failing loudly.
+The alias guessing and probing live in ``app.teeitup_probe`` and are exercised
+through the CLI's imports; what is pinned here is that the CLI still exposes
+the shapes its users rely on.
 """
 
 import pytest
 
-from scripts.find_courses import class_name, slug_candidates
+from app.teeitup_probe import class_name_for, slug_candidates
 
 
 @pytest.mark.parametrize(
@@ -53,5 +53,5 @@ def test_candidates_strip_punctuation():
     ],
 )
 def test_class_name_is_a_valid_identifier(name, expected):
-    assert class_name(name) == expected
-    assert class_name(name).isidentifier()
+    assert class_name_for(name) == expected
+    assert class_name_for(name).isidentifier()
