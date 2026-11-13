@@ -98,6 +98,40 @@ class Geocoder:
         hits = self._get({"q": query, "format": "json", "limit": 1})
         return _first(hits)
 
+    def golf_courses_near(
+        self, origin: Coordinates, radius_miles: float
+    ) -> list[tuple[str, Coordinates]]:
+        """Golf courses within ``radius_miles``, as (name, coordinates) pairs.
+
+        Nominatim has no radius search, so this asks inside a bounding box and
+        lets the caller apply the real distance.
+        """
+        lat_span = radius_miles / 69.0
+        lon_span = radius_miles / (69.0 * max(cos(radians(origin.lat)), 0.1))
+        viewbox = (
+            f"{origin.lon - lon_span:.4f},{origin.lat + lat_span:.4f},"
+            f"{origin.lon + lon_span:.4f},{origin.lat - lat_span:.4f}"
+        )
+        hits = self._get(
+            {
+                "q": "golf_course",
+                "format": "json",
+                "limit": 50,
+                "bounded": 1,
+                "viewbox": viewbox,
+            }
+        )
+        courses: list[tuple[str, Coordinates]] = []
+        for hit in hits:
+            coords = _first([hit])
+            if coords is None:
+                continue
+            # "Norwood Country Club, 400, Providence Highway, ..." -> first part
+            name = hit.get("display_name", "").split(",")[0].strip()
+            if name:
+                courses.append((name, coords))
+        return courses
+
 
 def _first(hits: list[dict]) -> Coordinates | None:
     if not hits:
