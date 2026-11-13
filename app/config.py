@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    #: Project name, used to derive the worker Lambda function names.
+    project_name: str = "tee-time-finder"
+    #: AWS region, needed to invoke the worker Lambdas from the admin routes.
+    aws_region: str = "us-east-1"
     default_search_zip: str = "02169"
     default_radius: float = 25.0
     cognito_region: str = "us-east-1"

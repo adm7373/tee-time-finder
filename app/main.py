@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from urllib.request import HTTPError, Request, urlopen
 import json
 
+from .admin import STEPS, is_admin, require_admin, trigger
 from .auth import require_user
 from .config import get_settings
 from .geo import GeocodeStore, Geocoder
@@ -154,6 +155,35 @@ def exchange_code(payload: dict[str, str]) -> dict[str, object]:
                 ),
             },
         )
+
+
+@app.post("/admin/{step}")
+def run_step(
+    step: str, user: dict = Depends(require_admin)
+) -> dict[str, object]:
+    """Start one worker and return immediately.
+
+    Admin-only: membership of the Cognito ``admins`` group is the permission.
+    The work runs in the worker Lambda under its own ten-minute timeout, so a
+    slow sweep never holds this request open.
+    """
+    return trigger(step)
+
+
+@app.get("/admin")
+def admin_page(user: dict = Depends(require_user)) -> dict[str, object]:
+    """What the admin page may offer this user.
+
+    Non-admins get the page with ``admin: false`` rather than a 403, so the
+    signed-in app can hide the section instead of showing a broken button.
+    """
+    return {
+        "admin": is_admin(user),
+        "steps": [
+            {"id": key, "label": value["label"], "detail": value["detail"]}
+            for key, value in STEPS.items()
+        ],
+    }
 
 
 @app.get("/health")

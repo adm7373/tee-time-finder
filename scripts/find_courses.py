@@ -25,6 +25,17 @@ class _PrintStore(CourseStore):
     def put(self, item: dict):
         self.rows[item["name"]] = item
 
+    def scan(self):
+        return list(self.rows.values())
+
+    def meta(self, key: str):
+        # No sweep history in a dry run, so every invocation looks like a first
+        # run and the sweep-vs-backlog behaviour is visible.
+        return None
+
+    def put_meta(self, key: str, value: str):
+        pass
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -48,15 +59,18 @@ def main(argv=None) -> int:
         print(f"Could not geocode ZIP {args.near}", file=sys.stderr)
         return 1
 
-    # Resolve --aliases hints into facility IDs up front so discovery counts
-    # them as already-known instead of probing a slug that will not resolve.
+    # Every facility the app already searches, plus any --aliases hints: a
+    # course pointing at one of these is reported as already configured rather
+    # than as a discovery. Without this the report claimed all 35 were new.
+    from app.providers import get_search_providers
     from app.teeitup_probe import facility_id_for
 
-    hint_ids = {
-        facility_id_for(alias)
+    configured = {p.facility_id for p in get_search_providers()}
+    configured.update(
+        facility_id
         for alias in known_aliases.values()
-        if facility_id_for(alias)
-    }
+        if (facility_id := facility_id_for(alias))
+    )
 
     print(f"Searching within {args.radius:g} miles of {args.near}")
     store = _PrintStore()
@@ -66,13 +80,8 @@ def main(argv=None) -> int:
         store=store,
         geocode_store=GeocodeStore(None, table=None),
         geocoder=geocoder,
-        configured_facility_ids=set(),
+        configured_facility_ids=configured,
     )
-    # Re-label hinted courses so the report reads as "already configured".
-    already = [
-        name for name, row in store.rows.items() if row.get("facility_id") in hint_ids
-    ]
-
     if args.emit:
         from app.teeitup_probe import facility_id_for as _f  # noqa: F401
 
@@ -81,15 +90,17 @@ def main(argv=None) -> int:
                 print(f'# {name}: facility {row["facility_id"]}')
         return 0
 
-    teeitup = [n for n, r in store.rows.items() if r["provider"] == "teeitup-confirmed"]
-    print(f"\n{len(teeitup)} new courses on TeeItUp:\n")
-    for name in sorted(teeitup):
+    new = [n for n, r in store.rows.items() if r["provider"] == "teeitup-confirmed"]
+    configured = [n for n, r in store.rows.items() if r["provider"] == "teeitup"]
+    print(f"\n{len(new)} new courses on TeeItUp:\n")
+    for name in sorted(new):
         row = store.rows[name]
         print(f"  {row['distance_from_zip']:5.1f} mi  {name:36} {row['facility_id']}")
-    if already:
-        print(f"\n{len(already)} already configured:")
-        for name in sorted(already):
-            print(f"  {name}")
+    if configured:
+        print(f"\n{len(configured)} already configured (a facility the app searches):")
+        for name in sorted(configured):
+            row = store.rows[name]
+            print(f"  {row['distance_from_zip']:5.1f} mi  {name:36} {row['facility_id']}")
     missing = [n for n, r in store.rows.items() if r["provider"] == "unknown"]
     if missing:
         print(f"\n{len(missing)} not on TeeItUp (no booking engine found):")

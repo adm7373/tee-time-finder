@@ -17,6 +17,23 @@ resource "aws_iam_role" "lambda_execution" {
   })
 }
 
+# The API's admin routes start the two workers. Scoped to exactly those two
+# functions: nothing else in the API can invoke a Lambda, and the workers
+# themselves get no invoke permission at all.
+data "aws_iam_policy_document" "api_invoke_workers" {
+  statement {
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.discover.arn, aws_lambda_function.fingerprint.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "api_invoke_workers" {
+  name   = "${var.project_name}-invoke-workers"
+  role   = aws_iam_role.lambda_execution.id
+  policy = data.aws_iam_policy_document.api_invoke_workers.json
+}
+
 resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -47,6 +64,9 @@ resource "aws_lambda_function" "api" {
       GEOCODE_TABLE_NAME = aws_dynamodb_table.geocode.name
       # Where discovered courses and booking fingerprints live; see courses.tf.
       COURSES_TABLE_NAME = aws_dynamodb_table.courses.name
+      # Used by the admin routes to invoke the workers asynchronously. AWS_REGION
+      # is reserved by the Lambda runtime and is already set there.
+      PROJECT_NAME = var.project_name
     }
   }
 }
@@ -181,4 +201,15 @@ resource "aws_lambda_permission" "api_gateway" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+# Admin routes are authenticated but not open to every user: the handler checks
+# Cognito group membership itself, so API Gateway only needs to verify the
+# token. Both routes sit behind the same JWT authorizer as /search.
+resource "aws_apigatewayv2_route" "admin" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "ANY /admin/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
