@@ -98,17 +98,6 @@
         "budgets:DescribeBudgetAction"
       ],
       "Resource": "*"
-    },
-    {
-      "Sid": "CognitoRead",
-      "Effect": "Allow",
-      "Action": [
-        "cognito-idp:AdminGetUser",
-        "cognito-idp:ListUsersInGroup",
-        "cognito-idp:GetGroup",
-        "cognito-idp:DescribeUserPool"
-      ],
-      "Resource": "*"
     }
   ]
 }

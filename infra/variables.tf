@@ -27,9 +27,3 @@ variable "budget_action_threshold_percent" {
   type        = number
   default     = 400
 }
-
-variable "admin_email" {
-  description = "Email of the user to put in the Cognito admins group. Empty creates no user."
-  type        = string
-  default     = ""
-}

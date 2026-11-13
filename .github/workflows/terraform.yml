@@ -25,9 +25,6 @@ env:
   # default in variables.tf so the address is not committed; unset, the budget
   # is created without email notifications.
   TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
-  # Email of the user placed in the Cognito admins group. Unset, no user is
-  # created and group membership stays a manual step.
-  TF_VAR_admin_email: ${{ vars.ADMIN_EMAIL }}
 
 jobs:
   plan:
