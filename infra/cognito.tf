@@ -53,3 +53,15 @@ resource "aws_cognito_user_group" "admins" {
   user_pool_id = aws_cognito_user_pool.main.id
   description  = "Can trigger the discovery and fingerprint workers from the admin page"
 }
+
+# Adding yourself to the admins group is a one-off console/CLI step, not
+# infrastructure: the group is what Terraform owns, and who is in it is account
+# state that should not have to be re-declared to survive an apply.
+#
+#   aws cognito-idp admin-add-user-to-group \
+#     --user-pool-id <pool-id> \
+#     --username you@example.com \
+#     --group-name admins
+#
+# Then sign out and back in: Cognito bakes groups into the token at issue time,
+# so an existing session will not carry the new claim.

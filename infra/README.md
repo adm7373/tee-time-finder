@@ -64,3 +64,21 @@ gh variable set ALERT_EMAIL --body "you@example.com"
 ```
 
 Unset, the budget and its action still work; only the emails are skipped.
+
+## Admin group
+
+Terraform creates the Cognito `admins` group. Membership is deliberately **not**
+in Terraform: who is in a group is account state, not infrastructure, and
+declaring a real user would make every apply own their attributes and password.
+
+Add yourself once:
+
+```bash
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id "$(terraform output -raw cognito_user_pool_id)" \
+  --username you@example.com \
+  --group-name admins
+```
+
+Then sign out and back in. Cognito bakes `cognito:groups` into the token at
+issue time, so an existing session will not carry the new claim.
