@@ -64,3 +64,22 @@ gh variable set ALERT_EMAIL --body "you@example.com"
 ```
 
 Unset, the budget and its action still work; only the emails are skipped.
+
+## Admin group
+
+The admin routes (`app/admin.py`) are gated on membership of the Cognito
+`admins` group. `cognito.tf` creates the group and, when `ADMIN_EMAIL` is set,
+creates that user and puts them in it, so the setup survives a rebuild instead
+of living only in the console:
+
+```bash
+gh variable set ADMIN_EMAIL --body "you@example.com"
+```
+
+No password is stored in Terraform. The user is created without one and gets it
+through the pool's emailed temporary-password flow, or an existing user's
+password is left untouched (`ignore_changes` covers `attributes` and
+`password`).
+
+**Group membership is baked into the token at sign-in**, so after the first
+apply the user must sign out and back in before the admin routes accept them.

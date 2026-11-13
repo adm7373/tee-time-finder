@@ -53,3 +53,34 @@ resource "aws_cognito_user_group" "admins" {
   user_pool_id = aws_cognito_user_pool.main.id
   description  = "Can trigger the discovery and fingerprint workers from the admin page"
 }
+
+# The admin user, so membership is reproducible rather than a console step that
+# has to be remembered after every rebuild. The password is never in Terraform:
+# the user is created without one and gets it through the pool's emailed
+# temporary-password flow. Terraform cannot delete a user that has attributes it
+# did not create, so this manages membership only.
+resource "aws_cognito_user" "admin" {
+  count = var.admin_email == "" ? 0 : 1
+
+  user_pool_id = aws_cognito_user_pool.main.id
+  username     = var.admin_email
+
+  attributes = {
+    email          = var.admin_email
+    email_verified = "true"
+  }
+
+  lifecycle {
+    # A password reset or a changed attribute on the real user must not make
+    # every apply want to rewrite it.
+    ignore_changes = [attributes, password]
+  }
+}
+
+resource "aws_cognito_user_in_group" "admin" {
+  count = var.admin_email == "" ? 0 : 1
+
+  user_pool_id = aws_cognito_user_pool.main.id
+  group_name   = aws_cognito_user_group.admins.name
+  username     = aws_cognito_user.admin[0].username
+}

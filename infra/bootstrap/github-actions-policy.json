@@ -149,6 +149,22 @@
         "budgets:DescribeBudgetAction"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "CognitoAdminUser",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminRemoveUserFromGroup",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:ListUsersInGroup",
+        "cognito-idp:CreateGroup",
+        "cognito-idp:DeleteGroup",
+        "cognito-idp:GetGroup",
+        "cognito-idp:DescribeUserPool"
+      ],
+      "Resource": "*"
     }
   ]
 }
