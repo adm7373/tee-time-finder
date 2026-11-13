@@ -20,20 +20,24 @@
       "Sid": "Cognito",
       "Effect": "Allow",
       "Action": [
+        "cognito-idp:CreateGroup",
         "cognito-idp:CreateUserPool",
-        "cognito-idp:DeleteUserPool",
-        "cognito-idp:DescribeUserPool",
-        "cognito-idp:UpdateUserPool",
         "cognito-idp:CreateUserPoolClient",
-        "cognito-idp:DeleteUserPoolClient",
-        "cognito-idp:DescribeUserPoolClient",
-        "cognito-idp:GetUserPoolMfaConfig",
-        "cognito-idp:UpdateUserPoolClient",
-        "cognito-idp:ListUserPools",
-        "cognito-idp:ListUserPoolClients",
         "cognito-idp:CreateUserPoolDomain",
+        "cognito-idp:DeleteGroup",
+        "cognito-idp:DeleteUserPool",
+        "cognito-idp:DeleteUserPoolClient",
         "cognito-idp:DeleteUserPoolDomain",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
         "cognito-idp:DescribeUserPoolDomain",
+        "cognito-idp:GetGroup",
+        "cognito-idp:GetUserPoolMfaConfig",
+        "cognito-idp:ListUserPoolClients",
+        "cognito-idp:ListUserPools",
+        "cognito-idp:UpdateGroup",
+        "cognito-idp:UpdateUserPool",
+        "cognito-idp:UpdateUserPoolClient",
         "cognito-idp:UpdateUserPoolDomain"
       ],
       "Resource": "*"
@@ -123,16 +127,24 @@
       "Sid": "DiscoveryWorkers",
       "Effect": "Allow",
       "Action": [
-        "lambda:CreateFunction",
-        "lambda:UpdateFunctionCode",
-        "lambda:UpdateFunctionConfiguration",
-        "lambda:DeleteFunction",
-        "events:PutRule",
+        "dynamodb:CreateTable",
+        "dynamodb:DeleteTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateTable",
         "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutRule",
         "events:PutTargets",
         "events:RemoveTargets",
-        "events:DescribeRule",
-        "events:TagResource"
+        "events:TagResource",
+        "lambda:CreateFunction",
+        "lambda:DeleteFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration"
       ],
       "Resource": "*"
     },
@@ -149,6 +161,39 @@
         "budgets:DescribeBudgetAction"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "BudgetActionRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListInstanceProfilesForRole",
+        "iam:CreatePolicy",
+        "iam:DeletePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/tee-time-finder-*",
+        "arn:aws:iam::*:policy/tee-time-finder-*"
+      ]
     }
   ]
 }
