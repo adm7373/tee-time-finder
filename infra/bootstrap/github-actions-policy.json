@@ -137,10 +137,12 @@
         "dynamodb:UpdateTable",
         "events:DeleteRule",
         "events:DescribeRule",
+        "events:ListTagsForResource",
         "events:PutRule",
         "events:PutTargets",
         "events:RemoveTargets",
         "events:TagResource",
+        "events:UntagResource",
         "lambda:CreateFunction",
         "lambda:DeleteFunction",
         "lambda:UpdateFunctionCode",
@@ -152,13 +154,15 @@
       "Sid": "BudgetsAndSpendStop",
       "Effect": "Allow",
       "Action": [
-        "budgets:ViewBudget",
-        "budgets:ModifyBudget",
         "budgets:CreateBudgetAction",
-        "budgets:UpdateBudgetAction",
         "budgets:DeleteBudgetAction",
+        "budgets:DescribeBudgetAction",
         "budgets:DescribeBudgetActionsForBudget",
-        "budgets:DescribeBudgetAction"
+        "budgets:ListTagsForResource",
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UpdateBudgetAction",
+        "budgets:ViewBudget"
       ],
       "Resource": "*"
     },
