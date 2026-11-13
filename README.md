@@ -15,17 +15,17 @@ A private, personal tool for searching local golf tee times by date, time, playe
 
 Local secrets belong in an untracked `.env` file or an approved secret manager. See `.env.example` when configuration is added.
 
-## Initial search contract
+## Search contract
 
-Every search should accept:
+Every search accepts:
 
 - ZIP code, defaulting to `02169`
 - Date
 - Earliest and latest acceptable tee time
-- Optional player count and maximum travel distance
+- Player count and maximum travel distance
 
-Search results should use a provider-neutral format so that course sites can be added independently and GolfNow is never required.
+Results use a provider-neutral `TeeTimeOption` so course sites can be added independently. GolfNow is never required.
 
-## Deployment direction
+## Deployment
 
-The initial design should favor low-cost AWS services and a small private surface area. Candidate components include a private web application, a lightweight scheduled/search backend, and AWS Secrets Manager or Parameter Store for sensitive configuration.
+The running system is a private HTTP API, two scheduled workers, Cognito, and two DynamoDB tables. Layout, auth, and the split between search and discovery are in [docs/architecture.md](docs/architecture.md). Local setup is in [docs/development.md](docs/development.md). Terraform details are in [infra/README.md](infra/README.md).
