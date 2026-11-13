@@ -93,13 +93,21 @@
       "Sid": "PassLambdaExecutionRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": [
-        "arn:aws:iam::*:role/tee-time-finder-budget-action",
-        "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution"
-      ],
+      "Resource": "arn:aws:iam::550968370453:role/tee-time-finder-lambda-execution",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassBudgetActionRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/tee-time-finder-budget-action",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "budgets.amazonaws.com"
         }
       }
     },
