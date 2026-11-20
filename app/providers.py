@@ -248,6 +248,7 @@ class TeeItUpProvider(SearchProvider):
         """
 
         availability = self.fetch_availability(request)
+        booking_url = f"{self.base_url}/" if getattr(self, "base_url", None) else None
         return [
             TeeTimeOption(
                 provider=self.name,
@@ -256,6 +257,7 @@ class TeeItUpProvider(SearchProvider):
                 start_time=item["start_time"],
                 players=item["players"],
                 distance_miles=round(distance_miles, 1),
+                booking_url=booking_url,
             )
             for item in availability
         ]

@@ -89,7 +89,7 @@ def test_config_exposes_login_url_with_registered_redirect_uri(client):
     assert query["redirect_uri"] == [settings.effective_redirect_uri]
     assert query["client_id"] == [CLIENT_ID]
     assert query["response_type"] == ["code"]
-    assert query["scope"] == ["openid email"]
+    assert query["scope"] == ["openid email aws.cognito.signin.user.admin"]
 
 
 def test_config_without_cognito_domain_offers_no_login_url(client):
@@ -103,6 +103,15 @@ def test_page_does_not_build_its_own_login_url(client):
     assert response.status_code == 200
     assert "amazoncognito.com" not in response.text
     assert "auth.cognito_login_url" in response.text
+
+
+def test_page_serves_build_free_frontend(client):
+    """The page is a build-free SPA using Tailwind and Alpine via CDN."""
+    response = client(_settings()).get("/")
+    assert response.status_code == 200
+    assert "cdn.tailwindcss.com" in response.text
+    assert "alpinejs" in response.text
+    assert "teeTimeApp()" in response.text
 
 
 # --- /auth/token --------------------------------------------------------------

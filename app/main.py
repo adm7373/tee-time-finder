@@ -1,5 +1,6 @@
 from datetime import date
 from functools import lru_cache
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -19,6 +20,8 @@ from mangum import Mangum
 settings = get_settings()
 app = FastAPI(title="Tee Time Finder", version="0.1.0")
 
+_INDEX_HTML_PATH = Path(__file__).parent / "static" / "index.html"
+
 # One store and one geocoder per process: the store memoises coordinates it has
 # already read, so a warm Lambda avoids DynamoDB entirely on repeat searches.
 _geocode_store = lru_cache(maxsize=1)(lambda: GeocodeStore(settings.geocode_table_name))
@@ -28,86 +31,7 @@ _geocoder = lru_cache(maxsize=1)(lambda: Geocoder(settings.nominatim_user_agent)
 
 @app.get("/", response_class=HTMLResponse)
 def page() -> str:
-    return """
-    <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Tee Time Finder</title><style>
-    body{font:16px system-ui;max-width:760px;margin:40px auto;padding:0 20px;color:#18322a}
-    input,button{font:inherit;padding:10px;margin:4px 0}button{cursor:pointer}
-    .card{border:1px solid #ccd8d2;border-radius:8px;padding:14px;margin:10px 0}
-    </style></head><body><h1>Tee Time Finder</h1>
-    <p>Search local courses by date, time, players, ZIP code, and radius.</p>
-    <button id="login">Sign in with Cognito</button>
-    <form id="search" hidden><label>Date <input id="date" type="date" required></label>
-    <label>ZIP <input id="zip" inputmode="numeric" value="02169" required></label>
-    <label>Radius (miles) <input id="radius" type="number" min="1" max="100"
-    step="1" value="25"></label>
-    <label>Earliest <input id="earliest" type="time"></label>
-    <label>Latest <input id="latest" type="time"></label>
-    <label>Players <input id="players" type="number" min="1" max="4" value="2"></label>
-    <button>Search tee times</button></form><div id="results"></div>
-    <script>
-    let token = null;
-    const results = document.querySelector('#results');
-    const $ = id => document.getElementById(id);
-
-    async function post(url, body, bearer) {
-      const headers = {'content-type': 'application/json'};
-      if (bearer) headers.authorization = 'Bearer ' + bearer;
-      const response = await fetch(url, {method: 'POST', headers, body: JSON.stringify(body)});
-      return {ok: response.ok, status: response.status, body: await response.json()};
-    }
-
-    // The login URL and the registered redirect URI both come from /config, so
-    // the browser never has to guess the redirect URI: a guessed one is what
-    // makes Cognito answer with error=redirect_mismatch.
-    async function signIn() {
-      const auth = await (await fetch('/config')).json();
-      if (!auth.cognito_login_url) {
-        results.textContent = 'Sign-in is not configured.';
-        return;
-      }
-      $('login').onclick = () => { location.href = auth.cognito_login_url; };
-      $('date').value = auth.default_date;
-
-      const code = new URLSearchParams(location.search).get('code');
-      if (!code) return;
-      const {ok, body} = await post('/auth/token', {code});
-      if (!ok || !body.access_token) {
-        const detail = body.detail || {};
-        throw new Error(detail.error_description || detail.error || 'Token exchange failed');
-      }
-      token = body.access_token;
-      $('login').hidden = true;
-      $('search').hidden = false;
-      history.replaceState({}, '', location.pathname);
-    }
-
-    $('search').onsubmit = async event => {
-      event.preventDefault();
-      const {ok, status, body} = await post('/search', {
-        date: $('date').value,
-        zip_code: $('zip').value,
-        radius_miles: +$('radius').value,
-        earliest_time: $('earliest').value || null,
-        latest_time: $('latest').value || null,
-        players: +$('players').value,
-      }, token);
-      if (!ok) {
-        results.textContent = 'Search failed (' + status + ').';
-        return;
-      }
-      results.innerHTML = body.map(x =>
-        `<div class="card"><b>${x.course_name}</b><br>${x.date} ${x.start_time}` +
-        ` · ${x.distance_miles ? "~" + x.distance_miles + " miles" : "distance unknown"}` +
-        ` · ${x.players} players</div>`
-      ).join('') || 'No tee times found.';
-    };
-
-    signIn().catch(error => {
-      results.textContent = 'Sign-in could not be completed: ' + error.message;
-    });
-    </script></body></html>
-    """
+    return _INDEX_HTML_PATH.read_text(encoding="utf-8")
 
 
 @app.post("/auth/token")

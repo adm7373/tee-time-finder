@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tee Time Finder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-stone-50 text-stone-900 min-h-screen font-sans antialiased">
+  <div x-data="teeTimeApp()" x-init="init()" class="max-w-3xl mx-auto px-4 py-8">
+    
+    <!-- Header -->
+    <header class="flex items-center justify-between pb-6 mb-6 border-b border-stone-200">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-emerald-950 flex items-center gap-2">
+          <span>⛳</span> Tee Time Finder
+        </h1>
+        <p class="text-stone-500 text-sm mt-1">Search real-time tee times across local public golf courses.</p>
+      </div>
+
+      <!-- Auth Controls in Header -->
+      <div>
+        <template x-if="!token">
+          <button 
+            @click="login()" 
+            class="inline-flex items-center gap-2 bg-emerald-800 hover:bg-emerald-900 text-white font-medium text-sm px-4 py-2 rounded-lg shadow-sm transition"
+          >
+            <span>Sign in with Cognito</span>
+          </button>
+        </template>
+        <template x-if="token">
+          <div class="flex items-center gap-2">
+            <template x-if="isAdmin">
+              <span class="bg-amber-100 text-amber-900 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-300">
+                Admin
+              </span>
+            </template>
+            <button 
+              @click="logout()" 
+              class="text-xs text-stone-500 hover:text-stone-800 font-medium px-3 py-1.5 rounded border border-stone-300 hover:bg-stone-100 transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </template>
+      </div>
+    </header>
+
+    <!-- Global Notice / Alert -->
+    <div x-show="errorMessage" x-cloak class="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm flex items-start justify-between">
+      <span x-text="errorMessage"></span>
+      <button @click="errorMessage = ''" class="text-red-500 hover:text-red-800 ml-2 font-bold">&times;</button>
+    </div>
+
+    <!-- Signed-out State -->
+    <div x-show="!token && !isLoadingAuth" x-cloak class="text-center py-12 px-4 bg-white rounded-xl border border-stone-200 shadow-sm">
+      <div class="text-4xl mb-3">🏌️‍♂️</div>
+      <h2 class="text-lg font-semibold text-stone-800 mb-1">Sign in to search tee times</h2>
+      <p class="text-stone-500 text-sm max-w-md mx-auto mb-6">
+        Search by date, party size, and radius. Authenticate securely with Cognito to view live tee times.
+      </p>
+      <button 
+        @click="login()" 
+        class="bg-emerald-800 hover:bg-emerald-900 text-white font-medium px-6 py-2.5 rounded-lg shadow transition"
+      >
+        Sign in with Cognito
+      </button>
+    </div>
+
+    <!-- Loading Auth State -->
+    <div x-show="isLoadingAuth" x-cloak class="text-center py-12">
+      <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-800 border-t-transparent mb-3"></div>
+      <p class="text-stone-500 text-sm">Authenticating session...</p>
+    </div>
+
+    <!-- Main Content (Signed in) -->
+    <div x-show="token" x-cloak class="space-y-6">
+
+      <!-- Search Form Card -->
+      <form @submit.prevent="searchTeeTimes()" class="bg-white p-6 rounded-xl border border-stone-200 shadow-sm space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <!-- Date -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="date">Date</label>
+            <input 
+              id="date" 
+              type="date" 
+              x-model="form.date" 
+              required 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+          </div>
+
+          <!-- ZIP Code -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="zip">ZIP Code</label>
+            <input 
+              id="zip" 
+              type="text" 
+              inputmode="numeric" 
+              x-model="form.zip_code" 
+              required 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+          </div>
+
+          <!-- Radius -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="radius">Radius (miles)</label>
+            <input 
+              id="radius" 
+              type="number" 
+              min="1" 
+              max="100" 
+              x-model.number="form.radius_miles" 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+          </div>
+
+          <!-- Players -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="players">Players</label>
+            <select 
+              id="players" 
+              x-model.number="form.players" 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+              <option value="1">1 player</option>
+              <option value="2">2 players</option>
+              <option value="3">3 players</option>
+              <option value="4">4 players</option>
+            </select>
+          </div>
+
+          <!-- Earliest Time -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="earliest">Earliest Time</label>
+            <input 
+              id="earliest" 
+              type="time" 
+              x-model="form.earliest_time" 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+          </div>
+
+          <!-- Latest Time -->
+          <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="latest">Latest Time</label>
+            <input 
+              id="latest" 
+              type="time" 
+              x-model="form.latest_time" 
+              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+          </div>
+        </div>
+
+        <div class="pt-2 flex justify-end">
+          <button 
+            type="submit" 
+            :disabled="isSearching"
+            class="inline-flex items-center gap-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-medium text-sm px-6 py-2.5 rounded-lg shadow-sm transition"
+          >
+            <template x-if="isSearching">
+              <span class="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+            </template>
+            <span x-text="isSearching ? 'Searching...' : 'Search Tee Times'"></span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Admin Panel (shown when user is in the admins group) -->
+      <template x-if="isAdmin">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-amber-950 flex items-center gap-2">
+              <span>⚙️</span> Admin Controls
+            </h2>
+            <span class="text-xs text-amber-700 font-medium">Asynchronous Worker Triggers</span>
+          </div>
+          
+          <template x-if="adminAlert">
+            <div class="text-xs p-2.5 rounded bg-white border border-amber-300 text-amber-900" x-text="adminAlert"></div>
+          </template>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <template x-for="step in adminSteps" :key="step.id">
+              <div class="bg-white p-3 rounded-lg border border-amber-200 flex flex-col justify-between">
+                <div>
+                  <h3 class="font-semibold text-xs text-stone-900" x-text="step.label"></h3>
+                  <p class="text-xs text-stone-500 mt-1" x-text="step.detail"></p>
+                </div>
+                <div class="mt-3 pt-2 border-t border-stone-100 flex justify-end">
+                  <button 
+                    @click="triggerAdminStep(step.id)" 
+                    :disabled="runningStep === step.id"
+                    class="text-xs bg-amber-800 hover:bg-amber-900 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded transition inline-flex items-center gap-1.5"
+                  >
+                    <template x-if="runningStep === step.id">
+                      <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
+                    </template>
+                    <span x-text="runningStep === step.id ? 'Starting...' : 'Trigger run'"></span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Results Header & Filters -->
+      <div x-show="hasSearched" class="space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+          <div>
+            <h2 class="text-base font-semibold text-stone-800">
+              <span x-text="filteredResults().length"></span> tee time<span x-text="filteredResults().length === 1 ? '' : 's'"></span> found
+            </h2>
+          </div>
+
+          <!-- Client-side Filter & Sort Controls -->
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
+              <button 
+                type="button"
+                @click="filterTime = 'all'" 
+                :class="filterTime === 'all' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                class="px-2.5 py-1 rounded-md transition"
+              >All</button>
+              <button 
+                type="button"
+                @click="filterTime = 'morning'" 
+                :class="filterTime === 'morning' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                class="px-2.5 py-1 rounded-md transition"
+              >Morning</button>
+              <button 
+                type="button"
+                @click="filterTime = 'afternoon'" 
+                :class="filterTime === 'afternoon' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                class="px-2.5 py-1 rounded-md transition"
+              >Afternoon</button>
+            </div>
+
+            <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
+              <button 
+                type="button"
+                @click="sortBy = 'time'" 
+                :class="sortBy === 'time' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                class="px-2.5 py-1 rounded-md transition"
+              >⏱ Time</button>
+              <button 
+                type="button"
+                @click="sortBy = 'distance'" 
+                :class="sortBy === 'distance' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                class="px-2.5 py-1 rounded-md transition"
+              >📍 Distance</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Cards List -->
+        <div class="space-y-3">
+          <template x-for="item in filteredResults()" :key="item.course_name + item.start_time">
+            <div class="bg-white p-4 rounded-xl border border-stone-200 hover:border-stone-300 shadow-sm transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="font-semibold text-stone-900 text-base" x-text="item.course_name"></h3>
+                  <span 
+                    class="text-xs px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium border border-stone-200"
+                    x-text="item.distance_miles ? '~' + item.distance_miles + ' mi' : 'distance unknown'"
+                  ></span>
+                </div>
+                <div class="text-xs text-stone-500 mt-1 flex items-center gap-3">
+                  <span>📅 <span x-text="item.date"></span></span>
+                  <span>⏰ <span class="font-semibold text-stone-700" x-text="formatTime(item.start_time)"></span></span>
+                  <span>👤 <span x-text="item.players"></span> player<span x-text="item.players === 1 ? '' : 's'"></span></span>
+                </div>
+              </div>
+
+              <!-- Booking Link -->
+              <div class="flex-shrink-0">
+                <template x-if="item.booking_url">
+                  <a 
+                    :href="item.booking_url" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium px-4 py-2 rounded-lg transition shadow-sm"
+                  >
+                    <span>Book on TeeItUp</span>
+                    <span>↗</span>
+                  </a>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- No results empty state -->
+          <div x-show="filteredResults().length === 0" class="text-center py-10 bg-white rounded-xl border border-stone-200 text-stone-500 text-sm">
+            No tee times found matching your criteria. Try widening your radius or adjusting your time window.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function teeTimeApp() {
+      return {
+        token: sessionStorage.getItem('access_token') || null,
+        loginUrl: null,
+        isLoadingAuth: false,
+        isAdmin: false,
+        adminSteps: [],
+        adminAlert: '',
+        runningStep: null,
+        errorMessage: '',
+        isSearching: false,
+        hasSearched: false,
+        results: [],
+        filterTime: 'all',
+        sortBy: 'time',
+        form: {
+          date: '',
+          zip_code: '02169',
+          radius_miles: 25,
+          players: 2,
+          earliest_time: '',
+          latest_time: '',
+        },
+
+        async init() {
+          try {
+            // Load public config
+            const configResp = await fetch('/config');
+            if (configResp.ok) {
+              const auth = await configResp.json();
+              this.loginUrl = auth.cognito_login_url;
+              if (auth.default_date && !this.form.date) {
+                this.form.date = auth.default_date;
+              }
+              if (auth.default_search_zip) {
+                this.form.zip_code = auth.default_search_zip;
+              }
+            }
+
+            // Check if returning from Cognito redirect with code
+            const code = new URLSearchParams(window.location.search).get('code');
+            if (code) {
+              this.isLoadingAuth = true;
+              window.history.replaceState({}, '', window.location.pathname);
+              await this.exchangeCode(code);
+            }
+
+            // If we have a token, check admin status
+            if (this.token) {
+              await this.checkAdminStatus();
+            }
+          } catch (e) {
+            console.error(e);
+            this.errorMessage = 'Failed initializing page: ' + e.message;
+          } finally {
+            this.isLoadingAuth = false;
+          }
+        },
+
+        login() {
+          if (this.loginUrl) {
+            window.location.href = this.loginUrl;
+          } else {
+            this.errorMessage = 'Sign-in is not configured on this environment.';
+          }
+        },
+
+        logout() {
+          this.token = null;
+          this.isAdmin = false;
+          this.adminSteps = [];
+          this.results = [];
+          this.hasSearched = false;
+          sessionStorage.removeItem('access_token');
+        },
+
+        async exchangeCode(code) {
+          try {
+            const resp = await fetch('/auth/token', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ code })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.access_token) {
+              const detail = data.detail || {};
+              throw new Error(detail.error_description || detail.error || 'Token exchange failed');
+            }
+            this.token = data.access_token;
+            sessionStorage.setItem('access_token', this.token);
+            await this.checkAdminStatus();
+          } catch (err) {
+            this.errorMessage = 'Sign-in could not be completed: ' + err.message;
+            this.logout();
+          }
+        },
+
+        async checkAdminStatus() {
+          try {
+            const resp = await fetch('/admin', {
+              headers: { 'authorization': 'Bearer ' + this.token }
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              this.isAdmin = Boolean(data.admin);
+              this.adminSteps = data.steps || [];
+            } else if (resp.status === 401) {
+              this.logout();
+            }
+          } catch (e) {
+            console.warn('Could not verify admin status', e);
+          }
+        },
+
+        async triggerAdminStep(stepId) {
+          this.runningStep = stepId;
+          this.adminAlert = '';
+          try {
+            const resp = await fetch('/admin/' + stepId, {
+              method: 'POST',
+              headers: { 
+                'authorization': 'Bearer ' + this.token,
+                'content-type': 'application/json'
+              }
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+              this.adminAlert = `Triggered ${stepId} successfully at ${new Date().toLocaleTimeString()} (status ${data.status_code || 202}).`;
+            } else {
+              this.adminAlert = 'Failed to trigger step: ' + (data.detail || resp.status);
+            }
+          } catch (e) {
+            this.adminAlert = 'Error triggering worker: ' + e.message;
+          } finally {
+            this.runningStep = null;
+          }
+        },
+
+        async searchTeeTimes() {
+          this.isSearching = true;
+          this.errorMessage = '';
+          try {
+            const body = {
+              date: this.form.date,
+              zip_code: this.form.zip_code,
+              radius_miles: Number(this.form.radius_miles),
+              players: Number(this.form.players),
+              earliest_time: this.form.earliest_time || null,
+              latest_time: this.form.latest_time || null,
+            };
+
+            const resp = await fetch('/search', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'authorization': 'Bearer ' + this.token
+              },
+              body: JSON.stringify(body)
+            });
+
+            if (!resp.ok) {
+              if (resp.status === 401) {
+                this.logout();
+                throw new Error('Your session expired. Please sign in again.');
+              }
+              const err = await resp.json().catch(() => ({}));
+              throw new Error(err.detail || ('Search failed with status ' + resp.status));
+            }
+
+            this.results = await resp.json();
+            this.hasSearched = true;
+          } catch (e) {
+            this.errorMessage = e.message;
+          } finally {
+            this.isSearching = false;
+          }
+        },
+
+        filteredResults() {
+          let list = [...this.results];
+
+          // Time filter
+          if (this.filterTime === 'morning') {
+            list = list.filter(item => {
+              const hour = parseInt(item.start_time.split(':')[0], 10);
+              return hour < 12;
+            });
+          } else if (this.filterTime === 'afternoon') {
+            list = list.filter(item => {
+              const hour = parseInt(item.start_time.split(':')[0], 10);
+              return hour >= 12;
+            });
+          }
+
+          // Sort
+          if (this.sortBy === 'distance') {
+            list.sort((a, b) => (a.distance_miles || 0) - (b.distance_miles || 0));
+          } else {
+            list.sort((a, b) => a.start_time.localeCompare(b.start_time));
+          }
+
+          return list;
+        },
+
+        formatTime(timeStr) {
+          if (!timeStr) return '';
+          const parts = timeStr.split(':');
+          const hour = parseInt(parts[0], 10);
+          const minute = parts[1] || '00';
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const displayHour = hour % 12 || 12;
+          return `${displayHour}:${minute} ${ampm}`;
+        }
+      };
+    }
+  </script>
+</body>
+</html>

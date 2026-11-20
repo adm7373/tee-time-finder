@@ -18,3 +18,4 @@ class TeeTimeOption(BaseModel):
     start_time: time
     players: int
     distance_miles: float
+    booking_url: str | None = None

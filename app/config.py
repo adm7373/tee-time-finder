@@ -73,7 +73,7 @@ class Settings(BaseSettings):
             {
                 "client_id": self.cognito_app_client_id,
                 "response_type": "code",
-                "scope": "openid email",
+                "scope": "openid email aws.cognito.signin.user.admin",
                 "redirect_uri": redirect_uri,
             }
         )
