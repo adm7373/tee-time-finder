@@ -5,6 +5,7 @@ and the geocode table) so they are discoverable and searchable dynamically.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from .geo import Coordinates, distance_miles
@@ -208,7 +209,7 @@ def build_course_row(course_data: dict, origin: Coordinates = DEFAULT_SEARCH_COO
         "provider": "teeitup",
         "lat": str(course_data["lat"]),
         "lon": str(course_data["lon"]),
-        "distance_from_zip": dist,
+        "distance_from_zip": Decimal(str(dist)),
         "zip_code": "02169",
         "discovery_attempts": 0,
         "last_checked": datetime.now(timezone.utc).isoformat(),

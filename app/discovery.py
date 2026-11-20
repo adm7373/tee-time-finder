@@ -23,6 +23,7 @@ attempts.
 """
 
 import datetime
+from decimal import Decimal
 import logging
 from dataclasses import dataclass, field
 
@@ -309,7 +310,7 @@ def _sweep(
             "lat": str(place.coords.lat),
             "lon": str(place.coords.lon),
             "display_name": place.coords.display_name,
-            "distance_from_zip": round(miles, 1),
+            "distance_from_zip": Decimal(str(round(miles, 1))),
             "zip_code": zip_code,
             "website": place.website,
             "provider": "unknown",

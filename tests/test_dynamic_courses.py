@@ -239,7 +239,7 @@ def test_seed_courses_populates_both_stores():
     assert norwood["x_be_alias"] == "norwood-country-club"
     assert norwood["booking_domain"] == "norwood-country-club.book.teeitup.golf"
     assert norwood["provider"] == "teeitup"
-    assert norwood["distance_from_zip"] == 9.6
+    assert float(norwood["distance_from_zip"]) == 9.6
 
     geo_norwood = geocode_store.course("5720")
     assert geo_norwood is not None
