@@ -37,7 +37,11 @@ def _tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
 
-def paced_get(url: str, accept: str = "application/json") -> tuple[int, str]:
+def paced_get(
+    url: str,
+    accept: str = "application/json",
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str]:
     """GET a URL, pacing requests. Returns (status, body); status 0 on error."""
     global _last_request
     elapsed = time.monotonic() - _last_request
@@ -45,13 +49,14 @@ def paced_get(url: str, accept: str = "application/json") -> tuple[int, str]:
         time.sleep(REQUEST_INTERVAL_SECONDS - elapsed)
     _last_request = time.monotonic()
 
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": accept,
-            "User-Agent": "tee-time-finder/0.1 (personal tool)",
-        },
-    )
+    req_headers = {
+        "Accept": accept,
+        "User-Agent": "tee-time-finder/0.1 (personal tool)",
+    }
+    if headers:
+        req_headers.update(headers)
+
+    request = urllib.request.Request(url, headers=req_headers)
     try:
         with urllib.request.urlopen(request, timeout=20, context=_tls_context()) as r:
             return r.status, r.read().decode("utf-8", "replace")
@@ -108,6 +113,13 @@ def facility_id_for(alias: str) -> str | None:
         r'gnFacilityIds\\?"?:\s*\\?"?\[([\d,\s]*)\]', pushes.replace('\\"', '"')
     )
     if not match:
+        # Also check directly in body in case it appears in non-RSC script / HTML
+        match = re.search(
+            r'gnFacilityIds\\?"?:\s*\\?"?\[([\d,\s]*)\]', body.replace('\\"', '"')
+        )
+    if not match:
+        match = re.search(r'data-facility-id=["\'](\d+)["\']', body)
+    if not match:
         return None
     ids = [i.strip() for i in match.group(1).split(",") if i.strip()]
     return ids[0] if ids else None
@@ -118,7 +130,7 @@ def confirm_course(alias: str, facility_id: str, date: str) -> str | None:
     query = urllib.parse.urlencode(
         {"date": date, "facilityIds": facility_id, "returnPromotedRates": "true"}
     )
-    status, body = paced_get(f"{API_URL}?{query}")
+    status, body = paced_get(f"{API_URL}?{query}", headers={"x-be-alias": alias})
     if status != 200 or not body:
         return None
     try:

@@ -84,12 +84,36 @@ def handler(event: dict | None = None, context=None) -> dict:
         )
         if verdict.facility_id:
             course["facility_id"] = verdict.facility_id
+        if verdict.x_be_alias:
+            course["x_be_alias"] = verdict.x_be_alias
         if verdict.provider == "unknown":
             still_unknown += 1
         else:
             classified += 1
         if not dry_run:
             store.put(course)
+            if (
+                verdict.provider == "teeitup"
+                and verdict.facility_id
+                and course.get("lat")
+                and course.get("lon")
+                and settings.geocode_table_name
+            ):
+                try:
+                    from .geo import Coordinates, GeocodeStore
+
+                    geo_store = GeocodeStore(settings.geocode_table_name)
+                    geo_store.store_course(
+                        verdict.facility_id,
+                        Coordinates(
+                            lat=float(course["lat"]),
+                            lon=float(course["lon"]),
+                            display_name=course.get("display_name", ""),
+                            source="fingerprint",
+                        ),
+                    )
+                except Exception as geo_error:
+                    logger.warning("failed to cache geocode: %s", geo_error)
 
     logger.info(
         "fingerprint %s: classified=%d unknown=%d", run_id, classified, still_unknown

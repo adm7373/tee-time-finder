@@ -29,6 +29,8 @@ from functools import lru_cache
 
 import certifi
 
+from .teeitup_probe import facility_id_for, slug_candidates
+
 logger = logging.getLogger(__name__)
 
 #: A page that reached a booking engine, directly or through one hop.
@@ -113,9 +115,33 @@ def _teeitup_facility_id(body: str) -> str | None:
         r'gnFacilityIds\\?"?:\s*\\?"?\[([\d,\s]*)\]', pushes.replace('\\"', '"')
     )
     if not match:
+        match = re.search(
+            r'gnFacilityIds\\?"?:\s*\\?"?\[([\d,\s]*)\]', body.replace('\\"', '"')
+        )
+    if not match:
+        match = re.search(r'data-facility-id=["\'](\d+)["\']', body)
+    if not match:
         return None
     ids = [i.strip() for i in match.group(1).split(",") if i.strip()]
     return ids[0] if ids else None
+
+
+def _alias_from_teeitup_host_or_url(url_or_host: str) -> str:
+    host = _host(url_or_host) if "://" in url_or_host else url_or_host.lower()
+    if TEEITUP_HOST_SUFFIX in host:
+        subdomain = host.split(TEEITUP_HOST_SUFFIX)[0]
+        return subdomain.split(".")[-1]
+    return ""
+
+
+def _find_teeitup_alias_in_body(body: str) -> str:
+    match = re.search(r'([a-z0-9-]+)\.book\.teeitup\.golf', body, re.I)
+    if match:
+        return match.group(1).lower()
+    match = re.search(r'data-(?:be-)?alias=["\']([a-z0-9-]+)["\']', body, re.I)
+    if match:
+        return match.group(1).lower()
+    return ""
 
 
 def _other_provider(url: str, body: str) -> str | None:
@@ -175,6 +201,7 @@ class Fingerprint:
     provider: str = "unknown"  # teeitup | <other name> | other | unknown
     booking_domain: str = ""
     facility_id: str = ""
+    x_be_alias: str = ""
     evidence: str = ""
     checked_urls: list[str] = field(default_factory=list)
 
@@ -200,9 +227,16 @@ def fingerprint(course: dict) -> Fingerprint:
         result.checked_urls.append(f"https://{known_domain}/")
         facility_id = _teeitup_facility_id(body)
         if TEEITUP_HOST_SUFFIX in _host(final) or facility_id:
+            alias = course.get("x_be_alias") or _alias_from_teeitup_host_or_url(known_domain)
             result.provider = "teeitup"
             result.booking_domain = known_domain
-            result.facility_id = facility_id or course.get("facility_id") or ""
+            result.x_be_alias = alias
+            result.facility_id = (
+                facility_id
+                or course.get("facility_id")
+                or (facility_id_for(alias) if alias else "")
+                or ""
+            )
             result.evidence = f"booking engine still answers at {known_domain}"
             return result
 
@@ -212,17 +246,36 @@ def fingerprint(course: dict) -> Fingerprint:
             continue
         final, body = first
         if TEEITUP_HOST_SUFFIX in _host(final):
-            facility_id = _teeitup_facility_id(body)
+            alias = _alias_from_teeitup_host_or_url(_host(final))
+            facility_id = _teeitup_facility_id(body) or (
+                facility_id_for(alias) if alias else ""
+            )
             result.provider = "teeitup"
             result.booking_domain = _host(final)
+            result.x_be_alias = alias
             result.facility_id = facility_id or ""
             result.evidence = f"website {start} redirects to TeeItUp engine"
             return result
         lowered = body.lower()
         if any(marker in lowered for marker in TEEITUP_WIDGET_MARKERS):
+            alias = _find_teeitup_alias_in_body(body)
             facility_id = _teeitup_facility_id(body)
+            if not alias and course.get("name"):
+                for candidate in slug_candidates(course["name"]):
+                    fid = facility_id_for(candidate)
+                    if fid:
+                        alias = candidate
+                        facility_id = fid
+                        break
+            if alias and not facility_id:
+                facility_id = facility_id_for(alias)
             result.provider = "teeitup"
-            result.booking_domain = _host(start) + " (embedded widget)"
+            result.x_be_alias = alias
+            result.booking_domain = (
+                f"{alias}.book.teeitup.golf"
+                if alias
+                else f"{_host(start)} (embedded widget)"
+            )
             result.facility_id = facility_id or ""
             result.evidence = f"course site {start} embeds the TeeItUp widget"
             return result
@@ -243,9 +296,16 @@ def fingerprint(course: dict) -> Fingerprint:
             if TEEITUP_HOST_SUFFIX in _host(link_final) or _teeitup_facility_id(
                 link_body
             ):
+                alias = _alias_from_teeitup_host_or_url(_host(link_final)) or _find_teeitup_alias_in_body(link_body)
+                facility_id = _teeitup_facility_id(link_body) or (
+                    facility_id_for(alias) if alias else ""
+                )
                 result.provider = "teeitup"
-                result.booking_domain = _host(link_final)
-                result.facility_id = _teeitup_facility_id(link_body) or ""
+                result.x_be_alias = alias
+                result.booking_domain = (
+                    f"{alias}.book.teeitup.golf" if alias else _host(link_final)
+                )
+                result.facility_id = facility_id or ""
                 result.evidence = f"booking link {link} leads to TeeItUp engine"
                 return result
             other = _other_provider(link_final, link_body)
@@ -266,9 +326,16 @@ def fingerprint(course: dict) -> Fingerprint:
             if TEEITUP_HOST_SUFFIX in _host(probe_final) or _teeitup_facility_id(
                 probe_body
             ):
+                alias = _alias_from_teeitup_host_or_url(_host(probe_final)) or _find_teeitup_alias_in_body(probe_body)
+                facility_id = _teeitup_facility_id(probe_body) or (
+                    facility_id_for(alias) if alias else ""
+                )
                 result.provider = "teeitup"
-                result.booking_domain = _host(probe_final)
-                result.facility_id = _teeitup_facility_id(probe_body) or ""
+                result.x_be_alias = alias
+                result.booking_domain = (
+                    f"{alias}.book.teeitup.golf" if alias else _host(probe_final)
+                )
+                result.facility_id = facility_id or ""
                 result.evidence = f"booking path {probe} is a TeeItUp engine"
                 return result
 

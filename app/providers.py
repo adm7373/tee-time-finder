@@ -5,12 +5,16 @@ import logging
 import certifi
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 import ssl
 import json
 
-from .geo import GeocodeStore, Geocoder, distance_miles as miles_between
+from .geo import Coordinates, GeocodeStore, Geocoder, distance_miles as miles_between
 from .models import SearchRequest, TeeTimeOption
+
+if TYPE_CHECKING:
+    from .discovery import CourseStore
 
 
 class SearchProvider:
@@ -31,6 +35,19 @@ class SearchProvider:
 
     #: Human-readable course name; falls back to ``name`` when unset.
     display_name = ""
+
+    def __init__(
+        self,
+        name: str | None = None,
+        display_name: str | None = None,
+        coordinates: Coordinates | None = None,
+        **kwargs,
+    ):
+        if name is not None:
+            self.name = name
+        if display_name is not None:
+            self.display_name = display_name
+        self.coordinates = coordinates
 
     def search(
         self, request: SearchRequest, distance_miles: float = 0.0
@@ -76,9 +93,25 @@ class TeeItUpProvider(SearchProvider):
 
     _last_request_time: float = 0.0
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        facility_id: str | None = None,
+        x_be_alias: str | None = None,
+        display_name: str | None = None,
+        coordinates: Coordinates | None = None,
+        **kwargs,
+    ):
         """Initialize TeeItUpProvider and compute base_url."""
-        super().__init__(**kwargs)
+        if facility_id is not None:
+            self.facility_id = facility_id
+        if x_be_alias is not None:
+            self.x_be_alias = x_be_alias
+        super().__init__(
+            name=self.x_be_alias,
+            display_name=display_name if display_name is not None else self.display_name,
+            coordinates=coordinates,
+            **kwargs,
+        )
         # Compute base_url from x_be_alias
         if self.x_be_alias:
             self.base_url = f"https://{self.x_be_alias}.book.teeitup.golf"
@@ -371,7 +404,57 @@ class PinehillsProvider(TeeItUpProvider):
     x_be_alias = "pinehills-golf-club"
 
 
-def get_search_providers() -> list[SearchProvider]:
+def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
+    """Build TeeItUpProviders from courses recorded in DynamoDB."""
+    providers: list[SearchProvider] = []
+    rows = store.scan()
+    for row in rows:
+        if not row.get("pk", "").startswith("course#"):
+            continue
+        provider_name = row.get("provider", "")
+        if provider_name not in ("teeitup", "teeitup-confirmed"):
+            continue
+        facility_id = row.get("facility_id")
+        if not facility_id:
+            continue
+        alias = row.get("x_be_alias")
+        if not alias and row.get("booking_domain"):
+            domain = row["booking_domain"]
+            if ".book.teeitup.golf" in domain:
+                alias = domain.split(".book.teeitup.golf")[0]
+        if not alias:
+            continue
+        coords = None
+        if "lat" in row and "lon" in row:
+            try:
+                coords = Coordinates(
+                    lat=float(row["lat"]),
+                    lon=float(row["lon"]),
+                    display_name=row.get("display_name", ""),
+                    source="dynamodb",
+                )
+            except (TypeError, ValueError):
+                pass
+        name = row.get("display_name") or row.get("name") or alias
+        providers.append(
+            TeeItUpProvider(
+                facility_id=facility_id,
+                x_be_alias=alias,
+                display_name=name,
+                coordinates=coords,
+            )
+        )
+    return providers
+
+
+def get_search_providers(
+    course_store: "CourseStore | None" = None,
+) -> list[SearchProvider]:
+    if course_store is not None:
+        dynamic = get_providers_from_store(course_store)
+        if dynamic:
+            return dynamic
+
     # Ordered by distance from the default ZIP (02169), nearest first, so a
     # small radius stops issuing API calls as early as possible.
     providers: list[SearchProvider] = [
@@ -401,6 +484,7 @@ def search_all(
     request: SearchRequest,
     store: GeocodeStore | None = None,
     geocoder: Geocoder | None = None,
+    course_store: "CourseStore | None" = None,
 ) -> list[TeeTimeOption]:
     """Search every configured course, filtering by the requested radius.
 
@@ -413,10 +497,20 @@ def search_all(
 
     results: list[TeeTimeOption] = []
     seen: set[tuple[str, date, time]] = set()
-    for provider in get_search_providers():
+    if course_store is not None:
+        try:
+            candidate_providers = get_search_providers(course_store)
+        except TypeError:
+            candidate_providers = get_search_providers()
+    else:
+        candidate_providers = get_search_providers()
+
+    for provider in candidate_providers:
         distance = 0.0
         if origin is not None:
-            course = store.course(provider.facility_id)
+            course = getattr(provider, "coordinates", None) or store.course(
+                provider.facility_id
+            )
             if course is not None:
                 distance = miles_between(origin, course)
                 if distance > request.radius_miles:

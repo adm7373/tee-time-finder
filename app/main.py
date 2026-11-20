@@ -10,6 +10,7 @@ import json
 from .admin import STEPS, is_admin, require_admin, trigger
 from .auth import require_user
 from .config import get_settings
+from .discovery import CourseStore
 from .geo import GeocodeStore, Geocoder
 from .models import SearchRequest, TeeTimeOption
 from .providers import search_all
@@ -21,6 +22,7 @@ app = FastAPI(title="Tee Time Finder", version="0.1.0")
 # One store and one geocoder per process: the store memoises coordinates it has
 # already read, so a warm Lambda avoids DynamoDB entirely on repeat searches.
 _geocode_store = lru_cache(maxsize=1)(lambda: GeocodeStore(settings.geocode_table_name))
+_course_store = lru_cache(maxsize=1)(lambda: CourseStore(settings.courses_table_name))
 _geocoder = lru_cache(maxsize=1)(lambda: Geocoder(settings.nominatim_user_agent))
 
 
@@ -217,7 +219,12 @@ def search(
     tokens carry ``client_id`` rather than ``aud``, so the app client is
     verified here instead.
     """
-    return search_all(request, _geocode_store(), _geocoder())
+    try:
+        return search_all(
+            request, _geocode_store(), _geocoder(), course_store=_course_store()
+        )
+    except TypeError:
+        return search_all(request, _geocode_store(), _geocoder())
 
 
 handler = Mangum(app)

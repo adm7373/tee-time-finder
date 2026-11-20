@@ -200,7 +200,12 @@ class CourseStore:
         self.put({"pk": f"meta#{key}", "value": value})
 
 
-def _probe(row: dict, configured_facility_ids: set[str], check_date: str) -> str:
+def _probe(
+    row: dict,
+    configured_facility_ids: set[str],
+    check_date: str,
+    geocode_store: GeocodeStore | None = None,
+) -> str:
     """Try TeeItUp aliases for one course, updating ``row`` in place.
 
     Returns what happened: ``teeitup`` (new pairing confirmed), ``already``
@@ -216,19 +221,48 @@ def _probe(row: dict, configured_facility_ids: set[str], check_date: str) -> str
                     "provider": "teeitup",
                     "booking_domain": f"{alias}.book.teeitup.golf",
                     "facility_id": facility_id,
+                    "x_be_alias": alias,
                 }
             )
+            _store_coords(geocode_store, facility_id, row)
             return "already"
-        if confirm_course(alias, facility_id, check_date):
+        course_id = confirm_course(alias, facility_id, check_date)
+        if course_id:
             row.update(
                 {
                     "provider": "teeitup-confirmed",
                     "booking_domain": f"{alias}.book.teeitup.golf",
                     "facility_id": facility_id,
+                    "x_be_alias": alias,
+                    "course_id": course_id,
                 }
             )
+            _store_coords(geocode_store, facility_id, row)
             return "teeitup"
     return "unknown"
+
+
+def _store_coords(
+    geocode_store: GeocodeStore | None, facility_id: str, row: dict
+) -> None:
+    if geocode_store is None:
+        return
+    try:
+        lat = float(row.get("lat"))
+        lon = float(row.get("lon"))
+        from .geo import Coordinates
+
+        geocode_store.store_course(
+            facility_id,
+            Coordinates(
+                lat=lat,
+                lon=lon,
+                display_name=row.get("display_name", ""),
+                source="discovery",
+            ),
+        )
+    except (TypeError, ValueError):
+        pass
 
 
 def _sweep(
@@ -287,7 +321,7 @@ def _sweep(
         if result.probed < MAX_PROBES_PER_RUN:
             result.probed += 1
             row["discovery_attempts"] = 1
-            outcome = _probe(row, configured_facility_ids, _today())
+            outcome = _probe(row, configured_facility_ids, _today(), geocode_store=geocode_store)
             if outcome == "teeitup":
                 result.tee_it_up += 1
                 result.details.append(
@@ -309,6 +343,7 @@ def _backlog(
     result: DiscoveryResult,
     store: CourseStore,
     configured_facility_ids: set[str],
+    geocode_store: GeocodeStore | None = None,
 ) -> None:
     """Work through recorded courses that are still unclassified.
 
@@ -327,7 +362,7 @@ def _backlog(
         result.probed += 1
         row["discovery_attempts"] = attempts_for(row) + 1
         row["last_checked"] = result.run_id
-        outcome = _probe(row, configured_facility_ids, _today())
+        outcome = _probe(row, configured_facility_ids, _today(), geocode_store=geocode_store)
         if outcome == "teeitup":
             result.tee_it_up += 1
             result.details.append(
@@ -382,7 +417,7 @@ def discover(
             result.swept = True
             store.put_meta("last_sweep", now.isoformat())
 
-    _backlog(result, store, configured_facility_ids)
+    _backlog(result, store, configured_facility_ids, geocode_store=geocode_store)
     return result
 
 
