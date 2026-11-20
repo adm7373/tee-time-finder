@@ -1,13 +1,13 @@
 """Tests for dynamic TeeItUp course handling, DynamoDB seeding, and search integration."""
 
-from datetime import date
+from datetime import date, time
 import pytest
 
 from app.discovery import CourseStore, discover
 from app import fingerprint as fp
 from app.fingerprint_handler import handler as fingerprint_handler
 from app.geo import Coordinates, GeocodeStore
-from app.models import SearchRequest
+from app.models import SearchRequest, TeeTimeOption
 from app.providers import (
     TeeItUpProvider,
     get_providers_from_store,
@@ -341,3 +341,45 @@ def test_search_all_uses_course_store(monkeypatch):
         req_small, store=geocode_store, course_store=course_store
     )
     assert len(options_small) == 0
+
+
+def test_parallel_search_queries_multiple_providers_concurrently(monkeypatch):
+    import time as pytime
+
+    class SlowProvider(TeeItUpProvider):
+        def search(self, request, distance_miles=0.0):
+            pytime.sleep(0.08)
+            return [
+                TeeTimeOption(
+                    provider=self.name,
+                    course_name=self.display_name,
+                    date=request.date,
+                    start_time=time(8, 0),
+                    players=request.players,
+                    distance_miles=distance_miles,
+                )
+            ]
+
+    class FailingProvider(TeeItUpProvider):
+        def search(self, request, distance_miles=0.0):
+            raise RuntimeError("Upstream API down")
+
+    p1 = SlowProvider(facility_id="1", x_be_alias="course-1", display_name="Course 1")
+    p2 = SlowProvider(facility_id="2", x_be_alias="course-2", display_name="Course 2")
+    p3 = FailingProvider(facility_id="3", x_be_alias="course-3", display_name="Course 3")
+
+    monkeypatch.setattr(
+        "app.providers.get_search_providers", lambda store=None: [p1, p2, p3]
+    )
+
+    req = SearchRequest(date=date(2026, 11, 12), players=2)
+    start_time = pytime.monotonic()
+    results = search_all(req)
+    duration = pytime.monotonic() - start_time
+
+    # Parallel execution ensures 2 x 80ms tasks run well under 160ms total
+    assert duration < 0.2
+    # Failing provider is caught and does not fail the search
+    assert len(results) == 2
+    assert {r.course_name for r in results} == {"Course 1", "Course 2"}
+

@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, time, datetime
 from functools import lru_cache
 import time as _time
@@ -505,6 +506,7 @@ def search_all(
     else:
         candidate_providers = get_search_providers()
 
+    eligible_providers: list[tuple[SearchProvider, float]] = []
     for provider in candidate_providers:
         distance = 0.0
         if origin is not None:
@@ -515,13 +517,43 @@ def search_all(
                 distance = miles_between(origin, course)
                 if distance > request.radius_miles:
                     continue
-        for option in provider.search(request, distance_miles=distance):
-            # Two aliases can front the same facility (Ponkapoag), which would
-            # otherwise list every tee time twice.
+        eligible_providers.append((provider, distance))
+
+    if not eligible_providers:
+        return []
+
+    def _fetch(p: SearchProvider, dist: float) -> list[TeeTimeOption]:
+        try:
+            return p.search(request, distance_miles=dist)
+        except Exception as error:
+            logging.getLogger(__name__).warning(
+                "Search failed for provider %s: %s", getattr(p, "name", p), error
+            )
+            return []
+
+    results: list[TeeTimeOption] = []
+    seen: set[tuple[str, date, time]] = set()
+
+    if len(eligible_providers) == 1:
+        provider, distance = eligible_providers[0]
+        for option in _fetch(provider, distance):
             key = (option.course_name, option.date, option.start_time)
-            if key in seen:
-                continue
-            seen.add(key)
-            results.append(option)
+            if key not in seen:
+                seen.add(key)
+                results.append(option)
+    else:
+        max_workers = min(len(eligible_providers), 10)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_provider = {
+                executor.submit(_fetch, p, d): p
+                for p, d in eligible_providers
+            }
+            for future in as_completed(future_to_provider):
+                for option in future.result():
+                    key = (option.course_name, option.date, option.start_time)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    results.append(option)
 
     return sorted(results, key=lambda result: result.start_time)
