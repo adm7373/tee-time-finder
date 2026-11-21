@@ -14,6 +14,8 @@ its guesses for the next run.
 import datetime
 import logging
 
+from .logging_setup import configure_logging
+
 logger = logging.getLogger(__name__)
 
 #: Courses fingerprinted per run. Each course costs up to a dozen slow page
@@ -50,6 +52,7 @@ def handler(event: dict | None = None, context=None) -> dict:
     from .discovery import CourseStore
     from .fingerprint import fingerprint
 
+    configure_logging()
     event = event or {}
     settings = get_settings()
     limit = int(event.get("limit") or DEFAULT_LIMIT)

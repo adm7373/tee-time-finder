@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 from .discovery_config import SEARCH_BOXES
 from .geo import CoursePlace, GeocodeStore, Geocoder, distance_miles
+from .logging_setup import configure_logging
 from .teeitup_probe import confirm_course, facility_id_for, slug_candidates
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,7 @@ def handler(event: dict | None = None, context=None) -> dict:
     """
     from .config import get_settings
 
+    configure_logging()
     event = event or {}
     settings = get_settings()
     store = CourseStore(settings.courses_table_name)
