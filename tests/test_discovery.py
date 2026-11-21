@@ -7,6 +7,8 @@ logic — what gets a row, what counts as what, and what the fingerprint verdict
 look like.
 """
 
+import pytest
+
 from app import fingerprint as fp
 from app.discovery import CourseStore, DiscoveryResult, discover
 from app.geo import Coordinates
@@ -241,6 +243,12 @@ def test_golfnow_booking_link_is_named(monkeypatch):
     verdict = fp.fingerprint(_course(website="https://nearcc.com"))
     assert verdict.provider == "golfnow"
     assert "golfnow" in verdict.evidence
+
+
+@pytest.mark.parametrize("host, verdict", [("peabody.cps.golf", "cps-golf")])
+def test_other_engine_hosts_are_named(host, verdict):
+    page = f'<a href="https://{host}/book">Book a tee time</a>'
+    assert fp._other_provider("https://course.test", page) == verdict
 
 
 def test_foreup_booking_link_yields_the_ids_the_adapter_needs():

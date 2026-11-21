@@ -57,6 +57,7 @@ CLASSIFIED_PROVIDERS = frozenset(
         "teesnap",
         "gallus",
         "supreme-golf",
+        "cps-golf",
         "other",
     }
 )

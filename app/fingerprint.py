@@ -49,6 +49,7 @@ OTHER_PROVIDERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("golfnow", ("golfnow.com", "golfnow")),
     ("chronogolf", ("chronogolf",)),
     ("foreup", ("foreup", "foreupsoftware")),
+    ("cps-golf", ("cps.golf",)),
     ("clubcaddie", ("clubcaddie",)),
     ("golfback", ("golfback",)),
     ("teesnap", ("teesnap",)),
