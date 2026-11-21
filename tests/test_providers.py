@@ -13,6 +13,7 @@ from app.models import SearchRequest
 from app.providers import (
     ENGINE_PROVIDERS,
     BookingEngineProvider,
+    CpsGolfProvider,
     ForeUpProvider,
     TeeItUpProvider,
     get_providers_from_store,
@@ -20,6 +21,55 @@ from app.providers import (
     provider_coverage,
     search_all,
 )
+
+# Trimmed from a live cps.golf tee sheet (chattanooga, 2026-11-21): the API
+# answers a bare JSON array, startTime is course-local with no offset, and each
+# tee time carries the party sizes it can take.
+CPS_TEE_TIMES = [
+    {
+        "teeSheetId": 436451,
+        "startTime": "2026-11-21T14:24:00",
+        "courseId": 2,
+        "courseDate": "2026-11-21T00:00:00",
+        "holes": 9,
+        "courseName": "Brown Acres",
+        "participants": 4,
+        "minPlayer": 1,
+        "maxPlayer": 4,
+        "availableParticipantNo": [1, 2, 3, 4],
+    },
+    {
+        "teeSheetId": 438283,
+        "startTime": "2026-11-21T14:40:00",
+        "courseId": 1,
+        "courseDate": "2026-11-21T00:00:00",
+        "holes": 9,
+        # The live payload really does pad some course names.
+        "courseName": "Brainerd ",
+        "participants": 1,
+        "minPlayer": 1,
+        "maxPlayer": 1,
+        "availableParticipantNo": [1],
+    },
+    {
+        "teeSheetId": 438290,
+        "startTime": "2026-11-22T09:00:00",
+        "courseId": 1,
+        "courseDate": "2026-11-22T00:00:00",
+        "courseName": "Brainerd",
+        "availableParticipantNo": [1, 2],
+    },
+]
+
+CPS_NO_TEE_TIMES = {
+    "transactionId": "f875f1f3-4734-431a-ac8f-cbab0a0b222b",
+    "isSuccess": True,
+    "content": {
+        "messageKey": "NO_TEETIMES",
+        "messageTemplate": "No tee times available",
+        "messageType": "Attention",
+    },
+}
 
 # 12:00Z and 13:09Z on 2026-11-11 are 07:00 and 08:09 in New York (EST).
 PAYLOAD = [
@@ -397,6 +447,126 @@ def test_foreup_from_row_needs_both_ids():
     }
     assert ForeUpProvider.from_row(only_course) is None
     assert ForeUpProvider.from_row(only_schedule) is None
+
+
+def _cps(**kwargs):
+    """A provider for the tenant the live payload was read from."""
+    return CpsGolfProvider(
+        site="chattanooga", course_ids="1,2", display_name="Chattanooga", **kwargs
+    )
+
+
+def test_cps_parses_the_verified_tee_time_payload():
+    """The payload read from a live tee sheet becomes slots, not a guess."""
+    slots = _cps().parse_slots(
+        CPS_TEE_TIMES, SearchRequest(date=date(2026, 11, 21), players=2)
+    )
+
+    assert [
+        (slot["start_time"], slot["course_name"], slot["players"]) for slot in slots
+    ] == [(time(14, 24), "Brown Acres", 2)]
+
+
+def test_cps_filters_by_date_window_and_party_size():
+    provider = _cps()
+    later = SearchRequest(
+        date=date(2026, 11, 21), players=1, earliest_time=time(14, 30)
+    )
+    # 14:24 is before the window; the 11/22 tee time is another day.
+    assert [s["start_time"] for s in provider.parse_slots(CPS_TEE_TIMES, later)] == [
+        time(14, 40)
+    ]
+
+    earlier = SearchRequest(
+        date=date(2026, 11, 21), players=1, latest_time=time(14, 30)
+    )
+    assert [s["course_name"] for s in provider.parse_slots(CPS_TEE_TIMES, earlier)] == [
+        "Brown Acres"
+    ]
+
+    # Brainerd takes one player only; Brown Acres takes up to four.
+    three = SearchRequest(date=date(2026, 11, 21), players=3)
+    assert [s["start_time"] for s in provider.parse_slots(CPS_TEE_TIMES, three)] == [
+        time(14, 24)
+    ]
+
+
+def test_cps_treats_the_no_tee_times_message_as_empty():
+    """A closed day answers an object, not an array; that is empty, not an error."""
+    slots = _cps().parse_slots(
+        CPS_NO_TEE_TIMES, SearchRequest(date=date(2026, 11, 21), players=2)
+    )
+
+    assert slots == []
+
+
+def test_cps_raises_on_a_payload_it_does_not_know():
+    provider = _cps()
+    request = SearchRequest(date=date(2026, 11, 21))
+
+    with pytest.raises(ValueError, match="not tee times"):
+        provider.parse_slots(
+            {"isSuccess": True, "content": {"messageKey": "SOMETHING_NEW"}}, request
+        )
+    with pytest.raises(ValueError, match="not a tee-time list"):
+        provider.parse_slots("false", request)
+    with pytest.raises(ValueError, match="no usable startTime"):
+        provider.parse_slots([{"courseName": "Brown Acres"}], request)
+
+
+def test_cps_from_row_reads_the_tenant_and_course_ids():
+    provider = CpsGolfProvider.from_row(
+        {
+            "pk": "course#meadow-at-peabody-golf-course",
+            "provider": "cps-golf",
+            "name": "Meadow at Peabody Golf Course",
+            "display_name": "Meadow at Peabody Golf Course, Peabody, MA",
+            "cps_site": "peabody",
+            "cps_course_ids": "1",
+            "lat": "42.5290",
+            "lon": "-70.9450",
+        }
+    )
+
+    assert provider is not None
+    assert provider.course_key() == "peabody/1"
+    assert provider.coordinates.lat == 42.529
+    assert (
+        provider.booking_url() == "https://peabody.cps.golf/onlineresweb/search-teetime"
+    )
+
+    url = provider.availability_url(SearchRequest(date=date(2026, 11, 21), players=2))
+    assert url.startswith(
+        "https://peabody.cps.golf/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes?"
+    )
+    assert "searchDate=Sat+Nov+21+2026" in url
+    assert "courseIds=1" in url
+
+
+def test_cps_from_row_can_take_the_tenant_from_the_booking_link():
+    provider = CpsGolfProvider.from_row(
+        {
+            "pk": "course#beverly-golf-tennis-club",
+            "provider": "cps-golf",
+            "booking_link": "https://beverlygolf.cps.golf/onlineresweb/search-teetime",
+            "cps_course_ids": "1",
+        }
+    )
+
+    assert provider is not None
+    assert provider.site == "beverlygolf"
+
+
+def test_cps_from_row_needs_both_the_tenant_and_course_ids():
+    """The endpoint books across named courses; an unnamed request is no request."""
+    assert (
+        CpsGolfProvider.from_row({"provider": "cps-golf", "cps_site": "peabody"})
+        is None
+    )
+    assert (
+        CpsGolfProvider.from_row({"provider": "cps-golf", "cps_course_ids": "1"})
+        is None
+    )
 
 
 # Trimmed from live foreup tee sheets on 2026-11-21 (Babe Zaharias 19717/2254

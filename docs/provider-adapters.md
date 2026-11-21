@@ -103,6 +103,51 @@ page load to every search.
 - Header `x-be-alias: <alias>`; `TeeItUpProvider` paces requests two seconds apart.
 - Slots carry UTC instants and `rates[].allowedPlayers`.
 
+### cps-golf — shape verified, transport blocked (not registered)
+
+CPS Golf (`cps.golf`) powers club booking for at least four rows: Meadow at
+Peabody (`peabody.cps.golf`), Gannon Municipal (`gannon.cps.golf`), Beverly Golf
+& Tennis (`beverlygolf.cps.golf`) and D. W. Field (`dwfields.cps.golf`). Each
+club site links its tenant, and the tenant subdomain is what identifies the
+booking engine.
+
+The API, read from a live tee sheet (Chattanooga, `2026-11-21`, the only
+cps.golf tenant with November inventory reachable for this work):
+
+- `GET https://<tenant>.cps.golf/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes`
+- Query: `searchDate=Sat%20Nov%2021%202026`, `holes=0`, `numberOfPlayer=0`,
+  `courseIds=1%2C2`, `searchTimeType=0`, `teeSheetSearchView=5`,
+  `classCode=R`, `defaultOnlineRate=N`, `isUseCapacityPricing=false`,
+  `memberStoreId=1`, `searchType=1`.
+- Headers: `client-id: onlineresweb`, plus `x-websiteid`,
+  `x-componentid: 1`, `x-productid: 1`, `x-ismobile: false`; older tenants
+  also require `x-apiKey` (published in their `onlineresweb/Home/Configuration`).
+  Newer tenants require a short-lived bearer token from
+  `identityapi/myconnect/token/short`.
+- Response: a bare JSON **array** of tee times in course-local time with no
+  offset — `startTime: "2026-11-21T14:24:00"`, `courseName` (sometimes padded),
+  `courseId`, `holes`, `availableParticipantNo: [1,2,3,4]`, `minPlayer`,
+  `maxPlayer`, `shItemPrices`.
+- A day with no inventory answers an **object**:
+  `{"isSuccess": true, "content": {"messageKey": "NO_TEETIMES", ...}}`.
+
+**Why there is no adapter in `ENGINE_PROVIDERS`.** Every `cps.golf` tenant sits
+behind Cloudflare's browser check for non-browser clients: `curl` and `urllib`
+receive `HTTP 403` with a "Verifying your browser · Club Prophet" HTML page for
+both the site and the API path (checked on `peabody`, `chattanooga` and the
+`onlineapi`/`onlineres` hosts). Only a real browser with JavaScript completes the
+check. Solving or replaying that challenge from a worker would be bypassing bot
+protection, which this project does not do, so `CpsGolfProvider` is implemented
+against the verified shape but left unregistered — registering it would report a
+blocked site as a silently empty tee sheet.
+
+To enable it later, one of: CPS allowlists a client id or API key for these
+tenants, CPS publishes a partner API on a host without the challenge, or the
+courses move to an engine that answers non-browser clients. Then add
+`"cps-golf": CpsGolfProvider` to `ENGINE_PROVIDERS`, and have the fingerprint
+worker store `cps_site` (the tenant) and `cps_course_ids` (the comma-joined ids
+from `OnlineCourses`) on the row.
+
 ### foreup — implemented
 
 - Discovered from a course site's booking link, e.g. Robert T. Lynch Municipal

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 import ssl
 import json
+import re
 
 from .geo import Coordinates, GeocodeStore, Geocoder, distance_miles as miles_between
 from .models import SearchRequest, TeeTimeOption
@@ -473,6 +474,182 @@ class ForeUpProvider(BookingEngineProvider):
                 continue
 
             name = tee.get("course_name") or self.display_name or self.label
+            key = (name, start.time())
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                {
+                    "date": request.date,
+                    "start_time": start.time(),
+                    "course_name": name,
+                    "players": request.players,
+                }
+            )
+
+        return results
+
+
+#: cps.golf tenants are subdomains: a club site links to
+#: ``https://<site>.cps.golf/onlineresweb/search-teetime``.
+CPS_TENANT_RE = re.compile(r"https?://(?P<site>[a-z0-9-]+)\.cps\.golf", re.I)
+
+
+class CpsGolfProvider(BookingEngineProvider):
+    """CPS Golf (cps.golf) online reservations.
+
+    ``parse_slots`` matches a payload read from a live tee sheet, not a guess:
+    the endpoint answers a JSON **array** of tee times in course-local time
+    (``2026-11-21T14:24:00``, no offset), each carrying ``courseName``,
+    ``availableParticipantNo`` and ``minPlayer``/``maxPlayer``. An empty day is
+    instead an object whose ``content.messageKey`` is ``"NO_TEETIMES"``.
+
+    It is deliberately **not** in :data:`ENGINE_PROVIDERS`. Every cps.golf
+    tenant answers a non-browser client with Cloudflare's browser check
+    (HTTP 403, "Verifying your browser / Club Prophet") before the request
+    reaches the API, so a server-side adapter can only ever receive that HTML.
+    Registering it would turn a blocked site into a silently empty tee sheet.
+    The shape is recorded here and in ``docs/provider-adapters.md`` so the
+    adapter is ready the day CPS allows API clients.
+    """
+
+    label = "cps-golf"
+
+    #: Tee-time endpoint for one date; ``{site}`` is the tenant subdomain.
+    api_url: str = (
+        "https://{site}.cps.golf/onlineres/onlineapi/api/v1/onlinereservation/TeeTimes"
+    )
+
+    #: Tenant subdomain, e.g. ``"peabody"``.
+    site: str = ""
+
+    #: Comma-joined course ids the site books across, e.g. ``"1,2"``.
+    course_ids: str = ""
+
+    def __init__(
+        self,
+        site: str | None = None,
+        course_ids: str | None = None,
+        display_name: str | None = None,
+        coordinates: Coordinates | None = None,
+        **kwargs,
+    ):
+        """Initialize CpsGolfProvider from a tenant and its course ids."""
+        if site is not None:
+            self.site = site
+        if course_ids is not None:
+            self.course_ids = course_ids
+        super().__init__(
+            name=f"cps-{self.site}" if self.site else self.label,
+            display_name=display_name or "",
+            coordinates=coordinates,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_row(cls, row: dict) -> "CpsGolfProvider | None":
+        """Build a provider from the tenant and course ids on the row.
+
+        Both are required: the endpoint takes a ``courseIds`` list and answers
+        nothing useful for an unnamed course, so a row that knows only its club
+        website builds no provider. A row that stored the booking link can
+        still supply the tenant from it.
+        """
+        site = str(row.get("cps_site") or "")
+        if not site:
+            match = CPS_TENANT_RE.search(row.get("booking_link") or "")
+            site = match.group("site") if match else ""
+        course_ids = str(row.get("cps_course_ids") or "")
+        if not (site and course_ids):
+            return None
+        return cls(
+            site=site,
+            course_ids=course_ids,
+            display_name=row.get("display_name") or row.get("name") or site,
+            coordinates=_row_coordinates(row),
+        )
+
+    def course_key(self) -> str:
+        """One row per tenant-and-courses pair."""
+        return f"{self.site}/{self.course_ids}"
+
+    def booking_url(self) -> str | None:
+        if not self.site:
+            return None
+        return f"https://{self.site}.cps.golf/onlineresweb/search-teetime"
+
+    def request_headers(self) -> dict[str, str]:
+        return {
+            "Accept": "application/json",
+            "client-id": "onlineresweb",
+            "User-Agent": "tee-time-finder/0.1",
+        }
+
+    def availability_url(self, request: SearchRequest) -> str:
+        """The query the site's own search page sends, minus browser headers."""
+        day = request.date
+        query = urlencode(
+            {
+                # The API takes the site's display format: "Sat Nov 21 2026".
+                "searchDate": f"{day:%a %b} {day.day} {day.year}",
+                "holes": 0,
+                "numberOfPlayer": 0,
+                "courseIds": self.course_ids,
+                "searchTimeType": 0,
+                "teeSheetSearchView": 5,
+                "classCode": "R",
+                "defaultOnlineRate": "N",
+                "isUseCapacityPricing": "false",
+                "memberStoreId": 1,
+                "searchType": 1,
+            }
+        )
+        return f"{self.api_url.format(site=self.site)}?{query}"
+
+    def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
+        """Slots on the requested local date, in the window, for the party size.
+
+        ``startTime`` is already course-local wall-clock time, so it compares
+        directly against the window; the response is never timezone-converted.
+        """
+        if isinstance(payload, dict):
+            message = (payload.get("content") or {}).get("messageKey")
+            if message == "NO_TEETIMES":
+                return []
+            raise ValueError(
+                f"cps.golf answered an object, not tee times: {message or payload!r}"
+            )
+        if not isinstance(payload, list):
+            raise ValueError(
+                f"cps.golf returned {type(payload).__name__}, not a tee-time list"
+            )
+
+        earliest = request.earliest_time or time.min
+        latest = request.latest_time or time.max
+        seen: set[tuple[str, time]] = set()
+        results: list[dict] = []
+
+        for tee in payload:
+            if not isinstance(tee, dict):
+                raise ValueError(f"cps.golf tee time is not an object: {tee!r}")
+            try:
+                start = datetime.fromisoformat(tee["startTime"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"cps.golf tee time has no usable startTime: {tee!r}"
+                ) from error
+
+            if start.date() != request.date:
+                continue
+            if not (earliest <= start.time() <= latest):
+                continue
+            allowed = tee.get("availableParticipantNo") or []
+            if request.players not in allowed:
+                continue
+
+            name = (
+                (tee.get("courseName") or "").strip() or self.display_name or self.site
+            )
             key = (name, start.time())
             if key in seen:
                 continue
