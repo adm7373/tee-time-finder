@@ -37,10 +37,12 @@ logger = logging.getLogger(__name__)
 TEEITUP_HOST_SUFFIX = ".book.teeitup.golf"
 
 #: TeeItUp's booking widget, embedded by courses that keep their own site.
+#: "lightspeed" is deliberately absent: Lightspeed Golf is Chronogolf, so a
+#: site saying only "Chronogolf by Lightspeed" is a Chronogolf course, and
+#: matching it here labelled two of them as TeeItUp.
 TEEITUP_WIDGET_MARKERS = (
     "book.teeitup.golf",
     "teeitup",
-    "lightspeed",  # TeeItUp runs on Lightspeed commerce infra; the widget says so
 )
 
 #: Recognizable booking providers, matched against page URLs and content.

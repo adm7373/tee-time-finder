@@ -685,3 +685,16 @@ def test_backlog_order_reaches_past_the_nearest_ten(monkeypatch):
         table.items[f"course#c{i:02d}"]["discovery_attempts"] == 1
         for i in range(10, 20)
     )
+
+
+def test_a_lightspeed_chronogolf_site_is_not_a_teeitup_widget(monkeypatch):
+    """Lightspeed Golf is Chronogolf; the word alone must not mean TeeItUp."""
+    body = (
+        '<a href="https://www.chronogolf.com/club/sassamon-trace">Book a time online</a>'
+        "<p>Chronogolf by Lightspeed</p>"
+    )
+    monkeypatch.setattr(fp, "_fetch", lambda url: (url, body))
+
+    verdict = fp.fingerprint(_course(website="https://www.sassamontrace.com/"))
+
+    assert verdict.provider == "chronogolf"
