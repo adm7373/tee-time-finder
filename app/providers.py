@@ -490,6 +490,211 @@ class ForeUpProvider(BookingEngineProvider):
         return results
 
 
+#: A chronogolf club page is ``https://www.chronogolf.com/club/<slug>``.
+CHRONOGOLF_CLUB_RE = re.compile(
+    r"https?://(?:www\.)?chronogolf\.[a-z.]+/club/(?P<slug>[a-z0-9-]+)", re.I
+)
+
+
+class ChronogolfProvider(BookingEngineProvider):
+    """Chronogolf (Lightspeed Golf) marketplace tee times.
+
+    A course is identified by its **uuid**, not the numeric id: the club page's
+    ``__NEXT_DATA__`` lists each course as ``{id, uuid, name, holes}``, and the
+    marketplace endpoint takes the uuid in ``course_ids``. Only the club slug is
+    needed for the booking link.
+
+    ``parse_slots`` matches a payload read from live tee sheets (Sassamon Trace
+    and Nehoiden, 2026-11-21): an object whose ``status`` is ``open``,
+    ``sold_out`` or ``closed``, wrapping a ``teetimes`` list. Each tee time
+    carries a course-local ``date``/``start_time`` (``"11:40"``), the utc
+    ``starts_at``, and ``min_player_size``/``max_player_size``.
+    """
+
+    label = "chronogolf"
+
+    #: Marketplace endpoint behind the club page's tee sheet.
+    api_url: str = "https://www.chronogolf.com/marketplace/v2/teetimes"
+
+    #: Course uuid(s) as stored on the row, comma-joined.
+    course_ids: str = ""
+
+    #: Club slug, for the page a person books on.
+    club_slug: str = ""
+
+    #: The endpoint answers 24 slots at a time, so a full day spans pages.
+    max_pages: int = 5
+
+    #: The marketplace answers 429 when asked in bursts (a five-page day is
+    #: five requests), so leave more room than the adapter default.
+    min_interval_seconds: float = 3.0
+
+    def __init__(
+        self,
+        course_ids: str | None = None,
+        club_slug: str | None = None,
+        display_name: str | None = None,
+        coordinates: Coordinates | None = None,
+        **kwargs,
+    ):
+        """Initialize ChronogolfProvider from a course uuid and club slug."""
+        if course_ids is not None:
+            self.course_ids = course_ids
+        if club_slug is not None:
+            self.club_slug = club_slug
+        super().__init__(
+            name=self.club_slug or self.label,
+            display_name=display_name or "",
+            coordinates=coordinates,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_row(cls, row: dict) -> "ChronogolfProvider | None":
+        """Build a provider from the course uuid on the row.
+
+        The uuid is required: the endpoint answers ``status: closed`` with no
+        tee times for an unknown one, which would look like a quiet course
+        rather than a missing id. The slug is optional and only sets the
+        booking link, so a row that stored just the club page still builds.
+        """
+        course_ids = str(row.get("cg_course_ids") or "").strip()
+        if not course_ids:
+            return None
+        slug = str(row.get("cg_slug") or "")
+        if not slug:
+            match = CHRONOGOLF_CLUB_RE.search(row.get("booking_link") or "")
+            slug = match.group("slug") if match else ""
+        return cls(
+            course_ids=course_ids,
+            club_slug=slug,
+            display_name=row.get("display_name") or row.get("name") or "chronogolf",
+            coordinates=_row_coordinates(row),
+        )
+
+    def course_key(self) -> str:
+        """One row per course uuid."""
+        return self.course_ids
+
+    def booking_url(self) -> str | None:
+        if not self.club_slug:
+            return None
+        return f"https://www.chronogolf.com/club/{self.club_slug}"
+
+    def availability_url(self, request: SearchRequest, page: int = 1) -> str:
+        """One page of the day's slots, from local midnight.
+
+        ``start_time`` filters on the server and ``holes`` is left off so both
+        9- and 18-hole inventory comes back; the time window is applied in
+        ``parse_slots`` so paging stays deterministic.
+        """
+        query = urlencode(
+            {
+                "start_date": request.date.isoformat(),
+                "course_ids": self.course_ids,
+                "start_time": "00:00",
+                "page": page,
+            }
+        )
+        return f"{self.api_url}?{query}"
+
+    def fetch_availability(self, request: SearchRequest) -> list[dict]:
+        """Walk the endpoint's pages until a page comes back empty."""
+        results: dict[tuple[str, time], dict] = {}
+        for page in range(1, self.max_pages + 1):
+            url = self.availability_url(request, page=page)
+            self._log(f"fetch_availability {url}")
+            payload = self._fetch_json(url)
+            if payload is None:
+                break
+            slots = self.parse_slots(payload, request)
+            for slot in slots:
+                results.setdefault((slot["course_name"], slot["start_time"]), slot)
+            if not payload["teetimes"]:
+                break
+        else:
+            logger.warning(
+                "%s [%s]: stopped after %d pages of tee times",
+                type(self).__name__,
+                self.name,
+                self.max_pages,
+            )
+
+        availability = list(results.values())
+        self._log_result("fetch_availability", bool(availability), len(availability))
+        return availability
+
+    def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
+        """Slots on the requested local date, in the window, for the party size.
+
+        ``date`` and ``start_time`` are already course-local wall clock, so they
+        compare directly against the window; ``starts_at`` is not needed. A
+        party size has to sit inside the slot's own ``min``/``max`` because the
+        endpoint does not filter on ``players``.
+        """
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"chronogolf returned {type(payload).__name__}, not a tee-time page"
+            )
+        tees = payload.get("teetimes")
+        if not isinstance(tees, list):
+            raise ValueError(
+                "chronogolf page has no teetimes list: "
+                f"status={payload.get('status')!r}"
+            )
+
+        earliest = request.earliest_time or time.min
+        latest = request.latest_time or time.max
+        seen: set[tuple[str, time]] = set()
+        results: list[dict] = []
+
+        for tee in tees:
+            if not isinstance(tee, dict):
+                raise ValueError(f"chronogolf tee time is not an object: {tee!r}")
+            try:
+                # Live sheets send both "11:40" and "9:20": the hour is not
+                # zero-padded, which time.fromisoformat rejects.
+                raw = str(tee["start_time"])
+                try:
+                    start = time.fromisoformat(raw)
+                except ValueError:
+                    start = datetime.strptime(raw, "%H:%M").time()
+                on = date.fromisoformat(str(tee["date"]))
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"chronogolf tee time has no usable date/start_time: {tee!r}"
+                ) from error
+
+            if on != request.date:
+                continue
+            if not (earliest <= start <= latest):
+                continue
+            smallest = int(tee.get("min_player_size") or 0)
+            largest = int(tee.get("max_player_size") or 0)
+            if not (smallest <= request.players <= largest):
+                continue
+
+            name = (
+                ((tee.get("course") or {}).get("name") or "").strip()
+                or self.display_name
+                or self.label
+            )
+            key = (name, start)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                {
+                    "date": request.date,
+                    "start_time": start,
+                    "course_name": name,
+                    "players": request.players,
+                }
+            )
+
+        return results
+
+
 #: cps.golf tenants are subdomains: a club site links to
 #: ``https://<site>.cps.golf/onlineresweb/search-teetime``.
 CPS_TENANT_RE = re.compile(r"https?://(?P<site>[a-z0-9-]+)\.cps\.golf", re.I)
@@ -673,6 +878,7 @@ ENGINE_PROVIDERS: dict[str, type[BookingEngineProvider]] = {
     "teeitup": TeeItUpProvider,
     "teeitup-confirmed": TeeItUpProvider,
     "foreup": ForeUpProvider,
+    "chronogolf": ChronogolfProvider,
 }
 
 

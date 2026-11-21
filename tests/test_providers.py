@@ -13,6 +13,7 @@ from app.models import SearchRequest
 from app.providers import (
     ENGINE_PROVIDERS,
     BookingEngineProvider,
+    ChronogolfProvider,
     CpsGolfProvider,
     ForeUpProvider,
     TeeItUpProvider,
@@ -268,7 +269,7 @@ def test_from_row_returns_none_without_the_ids_the_api_needs(row):
 
 def test_labels_without_an_engine_are_counted_not_dropped():
     rows = [
-        {"pk": "course#chrono", "provider": "chronogolf"},
+        {"pk": "course#caddie", "provider": "clubcaddie"},
         {"pk": "course#phone", "provider": "phone-only"},
         {"pk": "course#unknown", "provider": "unknown"},
         {
@@ -279,7 +280,7 @@ def test_labels_without_an_engine_are_counted_not_dropped():
         },
         {"pk": "meta#last_sweep"},
     ]
-    assert provider_coverage(rows) == {"chronogolf": 1, "unknown": 1}
+    assert provider_coverage(rows) == {"clubcaddie": 1, "unknown": 1}
 
 
 def test_two_rows_for_one_facility_become_one_provider():
@@ -700,3 +701,259 @@ def test_foreup_is_registered_and_builds_options_end_to_end(monkeypatch):
         "https://foreupsoftware.com/index.php/booking/19865/2748"
     )
     assert options[0].distance_miles == 2.5
+
+
+# Trimmed from live chronogolf marketplace pages (Sassamon Trace and Nehoiden,
+# 2026-11-21). ``date``/``start_time`` are course-local; ``starts_at`` is UTC.
+CHRONOGOLF_PAGE = {
+    "status": "open",
+    "teetimes": [
+        {
+            "id": 534576124,
+            "uuid": "cd2ef7c9-9970-4ebf-97ab-271288797617",
+            "course": {
+                "id": 8444,
+                "bookable_holes": [9],
+                "holes": 9,
+                "name": "Sassamon Trace",
+                "uuid": "46e18274-b0e5-4138-9df4-ccf32b2fc4e1",
+            },
+            "hole": 1,
+            "has_cart": False,
+            "min_player_size": 1,
+            "max_player_size": 1,
+            "starts_at": "2026-11-21T16:40:00Z",
+            "start_time": "11:40",
+            "date": "2026-11-21",
+            "event_id": None,
+            "has_deal": True,
+            "default_price": {
+                "green_fee": 32.0,
+                "half_cart": 12.23,
+                "one_person_cart": None,
+                "player_type_id": 30410,
+                "subtotal": 32.0,
+                "bookable_holes": 9,
+                "affiliation_type": "Public",
+            },
+            "departure": None,
+            "format": "normal",
+            "frozen": False,
+        },
+        {
+            "id": 534576201,
+            "uuid": "7c0b5d1d-6f0f-4f3a-9d2e-2a0c8b3a5f11",
+            "course": {
+                "id": 8388,
+                "bookable_holes": [9, 18],
+                "holes": 9,
+                "name": "Nehoiden",
+                "uuid": "a7deeef4-5562-4d4c-b71a-48698badfdd6",
+            },
+            "hole": 1,
+            "min_player_size": 1,
+            "max_player_size": 4,
+            "starts_at": "2026-11-21T17:10:00Z",
+            "start_time": "12:10",
+            "date": "2026-11-21",
+            "default_price": {"green_fee": 45.0, "affiliation_type": "Guest"},
+            "frozen": False,
+        },
+        {
+            "id": 534576290,
+            "uuid": "b5a1e3f4-0a2b-4c6d-8e9f-1a2b3c4d5e6f",
+            "course": {
+                "id": 8388,
+                "bookable_holes": [9, 18],
+                "holes": 9,
+                "name": "Nehoiden",
+                "uuid": "a7deeef4-5562-4d4c-b71a-48698badfdd6",
+            },
+            "hole": 1,
+            "min_player_size": 1,
+            "max_player_size": 4,
+            "starts_at": "2026-11-22T13:00:00Z",
+            "start_time": "08:00",
+            "date": "2026-11-22",
+            "default_price": {"green_fee": 45.0, "affiliation_type": "Guest"},
+            "frozen": False,
+        },
+    ],
+}
+
+
+def _chronogolf(**kwargs):
+    return ChronogolfProvider(
+        course_ids="46e18274-b0e5-4138-9df4-ccf32b2fc4e1",
+        club_slug="sassamon-trace",
+        display_name="Sassamon Trace Golf Course",
+        **kwargs,
+    )
+
+
+def test_chronogolf_from_row_reads_the_course_uuid_the_row_stored():
+    provider = ChronogolfProvider.from_row(
+        {
+            "pk": "course#sassamon-trace-golf-course",
+            "provider": "chronogolf",
+            "name": "Sassamon Trace Golf Course",
+            "cg_course_ids": "46e18274-b0e5-4138-9df4-ccf32b2fc4e1",
+            "cg_slug": "sassamon-trace",
+        }
+    )
+
+    assert provider.course_ids == "46e18274-b0e5-4138-9df4-ccf32b2fc4e1"
+    assert provider.course_key() == "46e18274-b0e5-4138-9df4-ccf32b2fc4e1"
+    assert provider.booking_url() == "https://www.chronogolf.com/club/sassamon-trace"
+
+
+def test_chronogolf_from_row_needs_the_course_uuid():
+    """The endpoint answers ``closed`` for an unknown uuid, so the id is required."""
+    assert ChronogolfProvider.from_row({"provider": "chronogolf"}) is None
+
+    # A slug alone still builds no provider: it cannot ask for tee times.
+    only_slug = ChronogolfProvider.from_row(
+        {"provider": "chronogolf", "cg_slug": "sassamon-trace"}
+    )
+    assert only_slug is None
+
+
+def test_chronogolf_reads_the_slug_from_a_stored_booking_link():
+    provider = ChronogolfProvider.from_row(
+        {
+            "provider": "chronogolf",
+            "cg_course_ids": "46e18274-b0e5-4138-9df4-ccf32b2fc4e1",
+            "booking_link": "https://www.chronogolf.com/club/nehoiden-golf-club",
+        }
+    )
+
+    assert provider.club_slug == "nehoiden-golf-club"
+
+
+def test_chronogolf_parses_a_live_tee_sheet_page():
+    slots = _chronogolf().parse_slots(
+        CHRONOGOLF_PAGE, SearchRequest(date=date(2026, 11, 21), players=1)
+    )
+
+    assert [(slot["start_time"], slot["course_name"]) for slot in slots] == [
+        (time(11, 40), "Sassamon Trace"),
+        (time(12, 10), "Nehoiden"),
+    ]
+
+
+def test_chronogolf_honours_the_player_range_each_slot_has():
+    # Sassamon's 11:40 slot seats one; Nehoiden's 12:10 seats up to four.
+    slots = _chronogolf().parse_slots(
+        CHRONOGOLF_PAGE, SearchRequest(date=date(2026, 11, 21), players=2)
+    )
+
+    assert [slot["course_name"] for slot in slots] == ["Nehoiden"]
+
+
+def test_chronogolf_filters_by_window_and_date():
+    request = SearchRequest(
+        date=date(2026, 11, 21), players=1, earliest_time=time(12, 0)
+    )
+
+    assert [
+        slot["start_time"]
+        for slot in _chronogolf().parse_slots(CHRONOGOLF_PAGE, request)
+    ] == [time(12, 10)]
+
+    # The 11/22 slot belongs to another day.
+    next_day = SearchRequest(date=date(2026, 11, 22), players=1)
+    assert [
+        slot["start_time"]
+        for slot in _chronogolf().parse_slots(CHRONOGOLF_PAGE, next_day)
+    ] == [time(8, 0)]
+
+
+def test_chronogolf_raises_on_a_page_it_does_not_know():
+    provider = _chronogolf()
+    request = SearchRequest(date=date(2026, 11, 21), players=1)
+
+    with pytest.raises(ValueError, match="not a tee-time page"):
+        provider.parse_slots([], request)
+    with pytest.raises(ValueError, match="no teetimes list"):
+        provider.parse_slots({"status": "closed"}, request)
+    with pytest.raises(ValueError, match="no usable date/start_time"):
+        provider.parse_slots({"status": "open", "teetimes": [{"id": 1}]}, request)
+
+
+def test_chronogolf_walks_pages_until_a_page_is_empty(monkeypatch):
+    """The endpoint answers 24 slots at a time, so a full day spans pages."""
+    second_page = {
+        "status": "open",
+        "teetimes": [
+            dict(
+                CHRONOGOLF_PAGE["teetimes"][1],
+                id=534576300,
+                start_time="14:00",
+                starts_at="2026-11-21T19:00:00Z",
+            )
+        ],
+    }
+    pages = [CHRONOGOLF_PAGE, second_page, {"status": "open", "teetimes": []}]
+    urls: list[str] = []
+
+    def fake_fetch(url):
+        urls.append(url)
+        return pages[len(urls) - 1]
+
+    provider = _chronogolf()
+    monkeypatch.setattr(provider, "_fetch_json", fake_fetch)
+
+    slots = provider.fetch_availability(
+        SearchRequest(date=date(2026, 11, 21), players=1)
+    )
+
+    assert [slot["start_time"] for slot in slots] == [
+        time(11, 40),
+        time(12, 10),
+        time(14, 0),
+    ]
+    assert [url.split("page=")[1] for url in urls] == ["1", "2", "3"]
+
+
+def test_chronogolf_is_registered_and_builds_options_end_to_end(monkeypatch):
+    assert ENGINE_PROVIDERS["chronogolf"] is ChronogolfProvider
+
+    provider = ChronogolfProvider.from_row(
+        {
+            "pk": "course#sassamon-trace-golf-course",
+            "provider": "chronogolf",
+            "name": "Sassamon Trace Golf Course",
+            "cg_course_ids": "46e18274-b0e5-4138-9df4-ccf32b2fc4e1",
+            "cg_slug": "sassamon-trace",
+        }
+    )
+    monkeypatch.setattr(provider, "_fetch_json", lambda url: CHRONOGOLF_PAGE)
+
+    options = provider.search(
+        SearchRequest(date=date(2026, 11, 21), players=1), distance_miles=2.5
+    )
+
+    assert [option.provider for option in options] == ["sassamon-trace"] * 2
+    assert options[0].booking_url == "https://www.chronogolf.com/club/sassamon-trace"
+
+
+def test_chronogolf_reads_the_unpadded_hour_live_sheets_send():
+    """Sassamon Trace's 11/23 sheet sends ``start_time: "9:20"``."""
+    payload = {
+        "status": "open",
+        "teetimes": [
+            {
+                "course": {"name": "Sassamon Trace"},
+                "start_time": "9:20",
+                "date": "2026-11-23",
+                "min_player_size": 1,
+                "max_player_size": 2,
+            }
+        ],
+    }
+
+    slots = _chronogolf().parse_slots(
+        payload, SearchRequest(date=date(2026, 11, 23), players=2)
+    )
+
+    assert [slot["start_time"] for slot in slots] == [time(9, 20)]

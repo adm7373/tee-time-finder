@@ -62,6 +62,7 @@ Register it in the same file:
         "teeitup": TeeItUpProvider,
         "teeitup-confirmed": TeeItUpProvider,
         "foreup": ForeUpProvider,
+        "chronogolf": ChronogolfProvider,
     }
 
 ## 4. Persist the ids the adapter needs
@@ -148,6 +149,42 @@ courses move to an engine that answers non-browser clients. Then add
 `"cps-golf": CpsGolfProvider` to `ENGINE_PROVIDERS`, and have the fingerprint
 worker store `cps_site` (the tenant) and `cps_course_ids` (the comma-joined ids
 from `OnlineCourses`) on the row.
+
+### chronogolf — implemented
+
+- A course's chronogolf page is `https://www.chronogolf.com/club/<slug>`. The
+  page's `__NEXT_DATA__` names the club and lists each course as
+  `{id, uuid, name, holes}`; the **uuid** is what the API takes, not the
+  numeric id (Sassamon Trace is course `8444`, uuid
+  `46e18274-b0e5-4138-9df4-ccf32b2fc4e1`).
+- API: `GET https://www.chronogolf.com/marketplace/v2/teetimes`
+- Query: `start_date=YYYY-MM-DD`, `course_ids=<course uuid>`,
+  `start_time=HH%3AMM`, `page=1`. `holes` is optional (it must be a number if
+  sent; `holes=all` is a `400`). `start_time` filters server-side, so the
+  adapter sends `00:00` and applies the window itself. `players` is accepted
+  but ignored.
+- No cookie, token or browser check: a plain `urllib` request with an
+  `Accept: application/json` header answers `200` from a server. `robots.txt`
+  disallows `/private_api/` (the logged-in app) and says nothing about
+  `/marketplace/`, which is the public tee sheet this adapter uses.
+- Payload, read live on 2026-11-21 (Sassamon Trace and Nehoiden):
+  `{"status": "open", "teetimes": [...]}`, where `status` is `open`,
+  `sold_out` or `closed`. Each tee time carries course-local `date` and
+  `start_time` (`"11:40"`), the utc `starts_at`, `min_player_size` /
+  `max_player_size`, `hole`, `course: {id, uuid, name, holes,
+  bookable_holes}`, `default_price` (`green_fee`, `affiliation_type`) and
+  `frozen`.
+- The endpoint pages **24 slots at a time** (page 2 held Nehoiden's 14:00–15:30
+  slots, page 3 was empty), so `ChronogolfProvider.fetch_availability` walks
+  pages until one comes back empty, stopping after five. A full day can
+  therefore be five requests, and the marketplace answers `429` when asked in
+  bursts: the adapter paces requests three seconds apart
+  (`min_interval_seconds = 3.0`), and a `429` is logged by `_fetch_json`
+  rather than disguised as an empty tee sheet.
+- Row fields: `cg_course_ids` (the course uuid, comma-joined when a club books
+  across several) and `cg_slug` (for the booking link). `from_row` requires the
+  uuid: the endpoint answers `status: closed` with no error for an unknown one,
+  so a slug-only row would look like a quiet course instead of a missing id.
 
 ### foreup — implemented
 
