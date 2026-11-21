@@ -94,7 +94,9 @@ def _search(test_client: TestClient, token: str = "token"):
 
 def test_access_token_with_matching_client_id_is_accepted(client, monkeypatch):
     monkeypatch.setattr(
-        main_module, "search_all", lambda request, store=None, geocoder=None: []
+        main_module,
+        "search_all",
+        lambda request, store=None, geocoder=None, course_store=None: [],
     )
     test_client = client()
     client.state["claims"] = _claims()
@@ -105,7 +107,9 @@ def test_access_token_with_matching_client_id_is_accepted(client, monkeypatch):
 
 def test_access_token_for_another_app_client_is_rejected(client, monkeypatch):
     monkeypatch.setattr(
-        main_module, "search_all", lambda request, store=None, geocoder=None: []
+        main_module,
+        "search_all",
+        lambda request, store=None, geocoder=None, course_store=None: [],
     )
     test_client = client()
     client.state["claims"] = _claims(client_id="some-other-client")
@@ -114,7 +118,9 @@ def test_access_token_for_another_app_client_is_rejected(client, monkeypatch):
 
 def test_id_token_with_matching_aud_is_accepted(client, monkeypatch):
     monkeypatch.setattr(
-        main_module, "search_all", lambda request, store=None, geocoder=None: []
+        main_module,
+        "search_all",
+        lambda request, store=None, geocoder=None, course_store=None: [],
     )
     test_client = client()
     client.state["claims"] = _claims(token_use="id", aud=CLIENT_ID)
@@ -123,7 +129,9 @@ def test_id_token_with_matching_aud_is_accepted(client, monkeypatch):
 
 def test_id_token_for_another_app_client_is_rejected(client, monkeypatch):
     monkeypatch.setattr(
-        main_module, "search_all", lambda request, store=None, geocoder=None: []
+        main_module,
+        "search_all",
+        lambda request, store=None, geocoder=None, course_store=None: [],
     )
     test_client = client()
     claims = _claims(token_use="id", aud="some-other-client")
@@ -134,7 +142,9 @@ def test_id_token_for_another_app_client_is_rejected(client, monkeypatch):
 
 def test_token_without_client_claim_is_rejected(client, monkeypatch):
     monkeypatch.setattr(
-        main_module, "search_all", lambda request, store=None, geocoder=None: []
+        main_module,
+        "search_all",
+        lambda request, store=None, geocoder=None, course_store=None: [],
     )
     test_client = client()
     claims = _claims()

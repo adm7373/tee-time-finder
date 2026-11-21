@@ -10,7 +10,15 @@ from datetime import date, time
 import pytest
 
 from app.models import SearchRequest
-from app.providers import NorwoodCCProvider
+from app.providers import (
+    ENGINE_PROVIDERS,
+    BookingEngineProvider,
+    NorwoodCCProvider,
+    TeeItUpProvider,
+    get_providers_from_store,
+    provider_coverage,
+    search_all,
+)
 
 # 12:00Z and 13:09Z on 2026-11-11 are 07:00 and 08:09 in New York (EST).
 PAYLOAD = [
@@ -144,3 +152,185 @@ def test_search_returns_options_with_date(provider):
     assert options[0].date == date(2026, 11, 11)
     assert options[0].start_time == time(7, 0)
     assert options[0].provider == "norwood-country-club"
+
+
+# --- the engine boundary: rows in, providers out -----------------------------
+
+
+class FakeStore:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def scan(self):
+        return self.rows
+
+
+def test_from_row_builds_a_provider_from_a_discovered_row():
+    row = {
+        "pk": "course#bradford-country-club",
+        "name": "Bradford Country Club",
+        "display_name": "Bradford Country Club, Haverhill, MA",
+        "provider": "teeitup-confirmed",
+        "facility_id": "9568",
+        "x_be_alias": "bradford-country-club",
+        "booking_domain": "bradford-country-club.book.teeitup.golf",
+        "lat": "42.7510945",
+        "lon": "-71.0673279",
+    }
+    provider = TeeItUpProvider.from_row(row)
+    assert provider.facility_id == "9568"
+    assert provider.name == "bradford-country-club"
+    assert provider.base_url == "https://bradford-country-club.book.teeitup.golf"
+    assert provider.coordinates is not None
+    assert provider.display_name.startswith("Bradford Country Club")
+
+
+def test_from_row_recovers_the_alias_from_the_booking_domain():
+    provider = TeeItUpProvider.from_row(
+        {
+            "pk": "course#x",
+            "name": "X",
+            "provider": "teeitup-confirmed",
+            "facility_id": "1",
+            "booking_domain": "x-golf-club.book.teeitup.golf",
+        }
+    )
+    assert provider is not None
+    assert provider.x_be_alias == "x-golf-club"
+    assert provider.coordinates is None
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"pk": "course#a", "provider": "teeitup-confirmed", "x_be_alias": "a"},
+        {"pk": "course#b", "provider": "teeitup-confirmed", "facility_id": "9"},
+    ],
+)
+def test_from_row_returns_none_without_the_ids_the_api_needs(row):
+    assert TeeItUpProvider.from_row(row) is None
+
+
+def test_labels_without_an_engine_are_counted_not_dropped():
+    rows = [
+        {"pk": "course#fore", "provider": "foreup"},
+        {"pk": "course#unknown", "provider": "unknown"},
+        {
+            "pk": "course#ok",
+            "provider": "teeitup-confirmed",
+            "facility_id": "1",
+            "x_be_alias": "ok",
+        },
+        {"pk": "meta#last_sweep"},
+    ]
+    assert provider_coverage(rows) == {"foreup": 1, "unknown": 1}
+
+
+def test_two_rows_for_one_facility_become_one_provider():
+    rows = [
+        {
+            "pk": "course#a",
+            "name": "A",
+            "provider": "teeitup",
+            "facility_id": "5720",
+            "x_be_alias": "norwood-country-club",
+        },
+        {
+            "pk": "course#b",
+            "name": "B",
+            "provider": "teeitup-confirmed",
+            "facility_id": "5720",
+            "x_be_alias": "norwood-cc",
+        },
+    ]
+    providers = get_providers_from_store(FakeStore(rows))
+    assert [p.facility_id for p in providers] == ["5720"]
+
+
+def test_a_new_engine_needs_only_its_own_four_methods(monkeypatch):
+    """The base carries pacing, HTTP, headers and option building."""
+
+    class FakeEngine(BookingEngineProvider):
+        label = "fake"
+
+        def __init__(self, facility_id: str):
+            super().__init__(name="fake-engine", display_name="Fake Municipal")
+            self.facility_id = facility_id
+
+        @classmethod
+        def from_row(cls, row):
+            return cls(row["facility_id"]) if row.get("facility_id") else None
+
+        def availability_url(self, request):
+            return f"https://fake.test/{self.facility_id}/{request.date.isoformat()}"
+
+        def parse_slots(self, payload, request):
+            return [
+                {
+                    "date": request.date,
+                    "start_time": time(9, 0),
+                    "course_name": self.display_name,
+                    "players": request.players,
+                }
+            ]
+
+    monkeypatch.setitem(ENGINE_PROVIDERS, "fake", FakeEngine)
+    store = FakeStore(
+        [{"pk": "course#fake", "name": "Fake", "provider": "fake", "facility_id": "42"}]
+    )
+
+    providers = get_providers_from_store(store)
+    assert [p.label for p in providers] == ["fake"]
+
+    provider = providers[0]
+    urls: list[str] = []
+    monkeypatch.setattr(
+        provider, "_fetch_json", lambda url: urls.append(url) or {"slots": [1]}
+    )
+    options = provider.search(
+        SearchRequest(date=date(2026, 11, 11), players=2), distance_miles=3.5
+    )
+
+    assert urls == ["https://fake.test/42/2026-11-11"]
+    assert [
+        (o.course_name, o.start_time, o.provider, o.distance_miles) for o in options
+    ] == [("Fake Municipal", time(9, 0), "fake-engine", 3.5)]
+
+
+def test_a_row_the_adapter_cannot_handle_fails_loudly(monkeypatch):
+    """A bug in from_row is not the same thing as "no dynamic providers"."""
+
+    class Broken(BookingEngineProvider):
+        label = "broken"
+
+        @classmethod
+        def from_row(cls, row):
+            raise TypeError("from_row cannot handle this row")
+
+    monkeypatch.setitem(ENGINE_PROVIDERS, "broken", Broken)
+
+    with pytest.raises(TypeError):
+        get_providers_from_store(FakeStore([{"pk": "course#b", "provider": "broken"}]))
+
+
+def test_search_all_propagates_a_catalog_failure(monkeypatch):
+    """No silent fall back to the static list: the request fails and logs."""
+
+    class FakeGeo:
+        def zip(self, zip_code, geocoder=None):
+            return None
+
+        def course(self, facility_id):
+            return None
+
+    def boom(course_store=None):
+        raise TypeError("catalog build failed")
+
+    monkeypatch.setattr("app.providers.get_search_providers", boom)
+
+    with pytest.raises(TypeError):
+        search_all(
+            SearchRequest(date=date(2026, 11, 11), players=2),
+            store=FakeGeo(),
+            course_store=object(),
+        )

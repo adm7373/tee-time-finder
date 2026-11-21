@@ -32,9 +32,11 @@ Locally the same app runs under uvicorn. See `docs/development.md`.
 
 `search_all` resolves the caller's ZIP through `GeocodeStore` (`app/geo.py`). The first search for a ZIP asks Nominatim and stores the coordinates; later searches read them back. Course coordinates are seeded by `scripts/geocode_courses.py` into the same table (`pk` of `zip#02169` or `course#5720`). A course with no coordinates is still searched. Its distance stays `0`, which the page shows as unknown. A course farther than `radius_miles` is skipped before any booking call.
 
-Each course is a `TeeItUpProvider` subclass that sets `facility_id`, `x_be_alias`, and `display_name`. The base class calls the TeeItUp tee-times API, waits at least two seconds between requests, converts UTC instants to `America/New_York`, and keeps slots on the requested date, inside the time window, that allow the requested player count. Results are `TeeTimeOption` values: provider, course name, date, start time, players, and distance. Duplicate course/date/time rows are dropped, then the list is sorted by start time.
+Each searchable course is a provider built from its row by an engine adapter (`BookingEngineProvider` in `app/providers.py`); for TeeItUp that means `facility_id` and `x_be_alias`. The adapter calls the tee-times API, waits at least two seconds between requests, converts UTC instants to `America/New_York`, and keeps slots on the requested date, inside the time window, that allow the requested player count. Results are `TeeTimeOption` values: provider, course name, date, start time, players, and distance. Duplicate course/date/time rows are dropped, then the list is sorted by start time.
 
-`get_search_providers()` is the search catalog. It is ordered nearest to `02169` first so a small radius stops issuing calls early. Adding a course means a new subclass plus an entry in that list. Classified rows in the courses table are not loaded here.
+`get_search_providers()` is the search catalog. Given a course store it is built from the courses table: the row's `provider` label selects an adapter in `ENGINE_PROVIDERS`, and that adapter's `from_row` turns the row into a provider, so a course discovery recorded last night is searchable without a code change. Rows whose label has no adapter, and rows missing the ids their engine needs, are counted and logged rather than dropped in silence. When the table yields nothing, the built-in list of 18 subclasses is the fallback, ordered nearest to `02169` first so a small radius stops issuing calls early.
+
+Adding a provider now means one `BookingEngineProvider` subclass plus a registry entry, not a class per course. `docs/provider-adapters.md` is the procedure.
 
 ## Authentication
 

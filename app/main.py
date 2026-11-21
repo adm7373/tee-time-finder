@@ -198,12 +198,9 @@ def search(
     tokens carry ``client_id`` rather than ``aud``, so the app client is
     verified here instead.
     """
-    try:
-        return search_all(
-            request, _geocode_store(), _geocoder(), course_store=_course_store()
-        )
-    except TypeError:
-        return search_all(request, _geocode_store(), _geocoder())
+    return search_all(
+        request, _geocode_store(), _geocoder(), course_store=_course_store()
+    )
 
 
 handler = Mangum(app)

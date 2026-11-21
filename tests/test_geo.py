@@ -209,7 +209,9 @@ def fake_courses(monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(providers, "get_search_providers", lambda: [Near(), Far()])
+    monkeypatch.setattr(
+        providers, "get_search_providers", lambda course_store=None: [Near(), Far()]
+    )
 
     table = FakeTable()
     store = GeocodeStore("t", table=table)
@@ -252,7 +254,7 @@ def test_course_without_coordinates_is_still_searched(fake_courses):
 def test_duplicate_aliases_are_collapsed(monkeypatch, fake_courses):
     original = providers.get_search_providers
 
-    def doubled():
+    def doubled(course_store=None):
         # Ponkapoag is fronted by two aliases pointing at the same facility.
         return original() + [original()[0]]
 

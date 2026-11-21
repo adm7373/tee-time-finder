@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from .discovery import CourseStore
 
 
+logger = logging.getLogger(__name__)
+
+
 class SearchProvider:
     """Provider boundary used by real course integrations later.
 
@@ -67,19 +70,136 @@ def _tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
 
-class TeeItUpProvider(SearchProvider):
-    """Base provider for courses using TeeItUp for booking.
+class BookingEngineProvider(SearchProvider):
+    """Base for a booking engine that many courses share.
 
-    Courses using TeeItUp booking system should subclass this and set the
-    class attributes ``api_url``, ``facility_id``, and ``x_be_alias`` to match
-    their specific configuration. The ``base_url`` is computed automatically
-    from ``x_be_alias`` as ``https://{x_be_alias}.book.teeitup.golf``.
+    An engine supplies only what differs: ``from_row`` (how a course row becomes
+    an instance), ``availability_url`` (the request for one date) and
+    ``parse_slots`` (how the response becomes slot dicts). Pacing, TLS, headers
+    and the mapping to ``TeeTimeOption`` live here, so adding an engine is one
+    small class plus an entry in :data:`ENGINE_PROVIDERS`, and adding a course
+    is a row in the courses table -- never another subclass.
 
-    The ``fetch_availability`` method handles the TeeItUp API pattern:
-    - Constructs the API URL with facility ID and current date
-    - Sends a JSON request with the ``x-be-alias`` header
-    - Parses tee-time slots from the response
+    ``label`` is the value discovery writes to a row's ``provider`` field.
     """
+
+    #: Row label this engine answers to, e.g. ``"teeitup"``.
+    label: str = ""
+
+    #: Booking API endpoint. Engines may build it per course instead.
+    api_url: str = ""
+
+    #: Minimum seconds between requests from one instance.
+    min_interval_seconds: float = 2.0
+
+    _last_request_time: float = 0.0
+
+    @classmethod
+    def from_row(cls, row: dict) -> "BookingEngineProvider | None":
+        """Build an instance from a course row, or None when the row lacks ids."""
+        raise NotImplementedError
+
+    def request_headers(self) -> dict[str, str]:
+        """Headers each availability request carries."""
+        return {"Accept": "application/json", "User-Agent": "tee-time-finder/0.1"}
+
+    def availability_url(self, request: SearchRequest) -> str:
+        raise NotImplementedError
+
+    def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
+        """Slots as ``{date, start_time, course_name, players}`` dicts."""
+        raise NotImplementedError
+
+    def booking_url(self) -> str | None:
+        """Where a person would book, or None when the engine has no page."""
+        return None
+
+    def course_key(self) -> str:
+        """Key that collapses two rows fronting the same course."""
+        return getattr(self, "facility_id", "") or self.name
+
+    def _fetch_json(self, url: str) -> object:
+        """Fetch JSON from a URL with the engine's headers.
+
+        TLS certificates are always verified, using certifi's CA bundle rather
+        than whatever the interpreter happens to ship: a Lambda runtime and a
+        local Python build can otherwise disagree about trusted roots.
+        """
+
+        now = _time.time()
+        elapsed = now - self._last_request_time
+        if elapsed < self.min_interval_seconds:
+            _time.sleep(self.min_interval_seconds - elapsed)
+        self._last_request_time = _time.time()
+
+        request = Request(url, headers=self.request_headers())
+        try:
+            with urlopen(request, timeout=15, context=_tls_context()) as response:
+                return json.loads(response.read())
+        except Exception as error:
+            logger.error(
+                "%s [%s] _fetch_json failed: %s", type(self).__name__, self.name, error
+            )
+            return None
+
+    def _log(self, message: str) -> None:
+        logger.debug("%s [%s]: %s", type(self).__name__, self.name, message)
+
+    def _log_result(self, method: str, success: bool, count: int) -> None:
+        logger.info(
+            "%s [%s] %s: %d results (%s)",
+            type(self).__name__,
+            self.name,
+            method,
+            count,
+            "success" if success else "no results",
+        )
+
+    def fetch_availability(self, request: SearchRequest) -> list[dict]:
+        """Ask the engine for one date and keep the slots that can be booked."""
+        url = self.availability_url(request)
+        self._log(f"fetch_availability {url}")
+        payload = self._fetch_json(url)
+        if not payload:
+            # The request failed (logged in _fetch_json) or returned nothing.
+            return []
+        slots = self.parse_slots(payload, request)
+        self._log_result("fetch_availability", bool(slots), len(slots))
+        return slots
+
+    def search(
+        self, request: SearchRequest, distance_miles: float = 0.0
+    ) -> list[TeeTimeOption]:
+        """Search for tee-time options.
+
+        ``distance_miles`` is supplied by :func:`search_all`, which knows where
+        the caller's ZIP is relative to this course.
+        """
+        availability = self.fetch_availability(request)
+        booking_url = self.booking_url()
+        return [
+            TeeTimeOption(
+                provider=self.name,
+                course_name=item["course_name"],
+                date=item["date"],
+                start_time=item["start_time"],
+                players=item["players"],
+                distance_miles=round(distance_miles, 1),
+                booking_url=booking_url,
+            )
+            for item in availability
+        ]
+
+
+class TeeItUpProvider(BookingEngineProvider):
+    """TeeItUp for booking: a course is a facility id plus a site alias.
+
+    The ``NorwoodCCProvider``-style subclasses still work, but they are no
+    longer how courses are added: discovery records the same fields on the
+    course row and :meth:`from_row` builds the provider from it.
+    """
+
+    label = "teeitup"
 
     #: API endpoint for tee times
     api_url: str = "https://phx-api-be-east-1b.kenna.io/v2/tee-times"
@@ -89,10 +209,6 @@ class TeeItUpProvider(SearchProvider):
 
     #: x-be-alias header value, e.g. "norwood-country-club"
     x_be_alias: str = ""
-
-    min_interval_seconds: float = 2.0
-
-    _last_request_time: float = 0.0
 
     def __init__(
         self,
@@ -122,59 +238,47 @@ class TeeItUpProvider(SearchProvider):
         # provider name so results are attributable to a course.
         self.name = self.x_be_alias or type(self).__name__
 
-    def _fetch_json(self, url: str) -> object:
-        """Fetch JSON from a URL with TeeItUp headers.
+    @classmethod
+    def from_row(cls, row: dict) -> "TeeItUpProvider | None":
+        """Build a provider from a row discovery or the fingerprint wrote.
 
-        TLS certificates are always verified, using certifi's CA bundle rather
-        than whatever the interpreter happens to ship: a Lambda runtime and a
-        local Python build can otherwise disagree about trusted roots.
+        The API needs a facility id and an alias. Confirmed rows carry both; a
+        row that only recorded the booking domain still yields the alias.
         """
-
-        now = _time.time()
-        elapsed = now - self._last_request_time
-        if elapsed < self.min_interval_seconds:
-            _time.sleep(self.min_interval_seconds - elapsed)
-        self._last_request_time = _time.time()
-
-        request = Request(
-            url,
-            headers={
-                "Accept": "application/json",
-                "x-be-alias": self.x_be_alias,
-                "User-Agent": "tee-time-finder/0.1",
-            },
-        )
-        try:
-            with urlopen(request, timeout=15, context=_tls_context()) as response:
-                return json.loads(response.read())
-        except Exception as e:
-            logging.getLogger(__name__).error(
-                f"TeeItUpProvider [{self.x_be_alias}] _fetch_json failed: {e}"
-            )
+        facility_id = row.get("facility_id")
+        alias = row.get("x_be_alias") or ""
+        if not alias and ".book.teeitup.golf" in (row.get("booking_domain") or ""):
+            alias = row["booking_domain"].split(".book.teeitup.golf")[0]
+        if not facility_id or not alias:
             return None
 
-    def _log(self, message: str):
-        """Log a message at debug level."""
-        _logging = logging.getLogger(__name__)
-        _logging.debug(f"TeeItUpProvider [{self.x_be_alias}]: {message}")
+        coordinates = None
+        if row.get("lat") and row.get("lon"):
+            try:
+                coordinates = Coordinates(
+                    lat=float(row["lat"]),
+                    lon=float(row["lon"]),
+                    display_name=row.get("display_name", ""),
+                    source="dynamodb",
+                )
+            except (TypeError, ValueError):
+                pass
 
-    def _log_result(self, method: str, success: bool, count: int):
-        """Log fetch/search results."""
-        _logging = logging.getLogger(__name__)
-        status = "success" if success else "no results"
-        _logging.info(
-            f"TeeItUpProvider [{self.x_be_alias}] {method}: {count} results ({status})"  # noqa: E501
+        return cls(
+            facility_id=str(facility_id),
+            x_be_alias=alias,
+            display_name=row.get("display_name") or row.get("name") or alias,
+            coordinates=coordinates,
         )
 
-    def fetch_availability(self, request: SearchRequest) -> list[dict]:
-        """Fetch availability from the TeeItUp API for this course.
+    def request_headers(self) -> dict[str, str]:
+        return {
+            "Accept": "application/json",
+            "x-be-alias": self.x_be_alias,
+            "User-Agent": "tee-time-finder/0.1",
+        }
 
-        Queries the requested date (in course-local time), then returns the
-        slots that fall on that date, inside the requested time window, and
-        that can seat ``request.players`` players.
-        """
-
-        tz = ZoneInfo(COURSE_TIMEZONE)
+    def availability_url(self, request: SearchRequest) -> str:
         query = urlencode(
             {
                 "date": request.date.isoformat(),
@@ -182,14 +286,14 @@ class TeeItUpProvider(SearchProvider):
                 "returnPromotedRates": "true",
             }
         )
-        url = f"{self.api_url}?{query}"
+        return f"{self.api_url}?{query}"
 
-        self._log(f"fetch_availability called with url: {url}")
-        payload = self._fetch_json(url)
-        if not payload:
-            # Request failed (logged in _fetch_json) or the API returned nothing.
-            return []
+    def booking_url(self) -> str | None:
+        return f"{self.base_url}/" if getattr(self, "base_url", None) else None
 
+    def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
+        """Slots on the requested local date, in the window, for the party size."""
+        tz = ZoneInfo(COURSE_TIMEZONE)
         earliest = request.earliest_time or time.min
         latest = request.latest_time or time.max
         # The window is expressed in local wall-clock time; compare against the
@@ -235,32 +339,7 @@ class TeeItUpProvider(SearchProvider):
                     }
                 )
 
-        self._log_result("fetch_availability", bool(results), len(results))
         return results
-
-    def search(
-        self, request: SearchRequest, distance_miles: float = 0.0
-    ) -> list[TeeTimeOption]:
-        """Search for tee-time options.
-
-        ``distance_miles`` is supplied by :func:`search_all`, which knows where
-        the caller's ZIP is relative to this course.
-        """
-
-        availability = self.fetch_availability(request)
-        booking_url = f"{self.base_url}/" if getattr(self, "base_url", None) else None
-        return [
-            TeeTimeOption(
-                provider=self.name,
-                course_name=item["course_name"],
-                date=item["date"],
-                start_time=item["start_time"],
-                players=item["players"],
-                distance_miles=round(distance_miles, 1),
-                booking_url=booking_url,
-            )
-            for item in availability
-        ]
 
 
 class NorwoodCCProvider(TeeItUpProvider):
@@ -407,45 +486,70 @@ class PinehillsProvider(TeeItUpProvider):
     x_be_alias = "pinehills-golf-club"
 
 
-def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
-    """Build TeeItUpProviders from courses recorded in DynamoDB."""
-    providers: list[SearchProvider] = []
-    rows = store.scan()
+#: Row label -> engine adapter. Discovery and the fingerprint worker write these
+#: labels on course rows; a row whose label is not here is a course the app
+#: knows about but cannot search yet.
+ENGINE_PROVIDERS: dict[str, type[BookingEngineProvider]] = {
+    "teeitup": TeeItUpProvider,
+    "teeitup-confirmed": TeeItUpProvider,
+}
+
+
+def provider_coverage(rows: list[dict]) -> dict[str, int]:
+    """Course rows whose label has no engine adapter, counted by label.
+
+    This is the number that says whether writing another adapter would unlock
+    anything, so it is shared by the catalog load and
+    ``scripts/unimplemented_providers.py``.
+    """
+    missing: dict[str, int] = {}
     for row in rows:
-        if not row.get("pk", "").startswith("course#"):
+        if not str(row.get("pk", "")).startswith("course#"):
             continue
-        provider_name = row.get("provider", "")
-        if provider_name not in ("teeitup", "teeitup-confirmed"):
+        label = row.get("provider") or "<missing>"
+        if label in ENGINE_PROVIDERS:
             continue
-        facility_id = row.get("facility_id")
-        if not facility_id:
+        missing[label] = missing.get(label, 0) + 1
+    return missing
+
+
+def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
+    """Build one provider per classified course row.
+
+    The row's label picks the engine, so a course discovered last night is
+    searchable without a code change; the engine's ``from_row`` supplies the
+    ids it needs. Rows an engine cannot build from, and labels with no engine,
+    are counted and logged rather than dropped in silence.
+    """
+    rows = [row for row in store.scan() if str(row.get("pk", "")).startswith("course#")]
+    providers: list[SearchProvider] = []
+    seen: set[str] = set()
+    for row in rows:
+        label = row.get("provider") or ""
+        engine = ENGINE_PROVIDERS.get(label)
+        if engine is None:
             continue
-        alias = row.get("x_be_alias")
-        if not alias and row.get("booking_domain"):
-            domain = row["booking_domain"]
-            if ".book.teeitup.golf" in domain:
-                alias = domain.split(".book.teeitup.golf")[0]
-        if not alias:
-            continue
-        coords = None
-        if "lat" in row and "lon" in row:
-            try:
-                coords = Coordinates(
-                    lat=float(row["lat"]),
-                    lon=float(row["lon"]),
-                    display_name=row.get("display_name", ""),
-                    source="dynamodb",
-                )
-            except (TypeError, ValueError):
-                pass
-        name = row.get("display_name") or row.get("name") or alias
-        providers.append(
-            TeeItUpProvider(
-                facility_id=facility_id,
-                x_be_alias=alias,
-                display_name=name,
-                coordinates=coords,
+        provider = engine.from_row(row)
+        if provider is None:
+            logger.info(
+                "catalog: %s is labelled %s but the row is missing ids %s needs",
+                row.get("name", "?"),
+                label,
+                engine.label,
             )
+            continue
+        key = provider.course_key()
+        if key in seen:
+            continue
+        seen.add(key)
+        providers.append(provider)
+
+    missing = provider_coverage(rows)
+    if missing:
+        logger.info(
+            "catalog: %d courses have no provider implementation: %s",
+            sum(missing.values()),
+            missing,
         )
     return providers
 
@@ -500,13 +604,11 @@ def search_all(
 
     results: list[TeeTimeOption] = []
     seen: set[tuple[str, date, time]] = set()
-    if course_store is not None:
-        try:
-            candidate_providers = get_search_providers(course_store)
-        except TypeError:
-            candidate_providers = get_search_providers()
-    else:
-        candidate_providers = get_search_providers()
+    # No fallback here. A catalog that cannot be built -- including an adapter
+    # raising on a row -- is a bug to see and fix; swallowing it would answer
+    # from the static list and make every discovered course disappear with no
+    # signal at all.
+    candidate_providers = get_search_providers(course_store)
 
     eligible_providers: list[tuple[SearchProvider, float]] = []
     for provider in candidate_providers:
