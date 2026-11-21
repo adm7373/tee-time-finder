@@ -301,6 +301,50 @@ def test_fingerprint_records_the_booking_link_it_found(monkeypatch):
     assert fp.foreup_ids(verdict.booking_link)["foreup_schedule_id"] == "2748"
 
 
+def test_path_hints_are_only_probed_on_the_courses_own_site(monkeypatch):
+    seen = []
+
+    def fetch(url):
+        seen.append(url)
+        return (url, "<html>welcome to the club</html>")
+
+    monkeypatch.setattr(fp, "_fetch", fetch)
+    verdict = fp.fingerprint(
+        _course(
+            name="Near CC",
+            website="https://real-site.com",
+            display_name="Near CC, Quincy, MA",
+        )
+    )
+
+    assert verdict.provider == "unknown"
+    assert "https://real-site.com/tee-times" in seen
+    assert "https://real-site.com/book-a-tee-time" in seen
+
+    guessed = [url for url in seen if "real-site.com" not in url]
+    assert guessed, "a domain guessed from the name still gets one look"
+    assert not any(
+        url.endswith(("/tee-times", "/book-a-tee-time")) for url in guessed
+    ), guessed
+
+
+def test_evidence_says_when_no_page_loaded(monkeypatch):
+    monkeypatch.setattr(fp, "_fetch", lambda url: (url, ""))
+    verdict = fp.fingerprint(_course(website="https://nearcc.com"))
+
+    assert verdict.provider == "unknown"
+    assert verdict.evidence.startswith("site unreachable")
+    assert "attempts" in verdict.evidence
+
+
+def test_evidence_says_when_a_page_loaded_but_named_no_engine(monkeypatch):
+    monkeypatch.setattr(fp, "_fetch", lambda url: (url, "<html>welcome</html>"))
+    verdict = fp.fingerprint(_course(website="https://real-site.com"))
+
+    assert verdict.provider == "unknown"
+    assert verdict.evidence.startswith("no known booking engine on ")
+
+
 def test_dead_site_stays_unknown(monkeypatch):
     monkeypatch.setattr(fp, "_fetch", lambda url: (url, ""))
     verdict = fp.fingerprint(_course(website="https://nearcc.com"))

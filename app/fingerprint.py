@@ -261,14 +261,18 @@ def fingerprint(course: dict) -> Fingerprint:
     """Classify how a course takes bookings, starting from its website guesses."""
     result = Fingerprint()
     fetches = 0
+    fetched = 0
 
     def visit(url: str) -> tuple[str, str] | None:
-        nonlocal fetches
+        nonlocal fetches, fetched
         if fetches >= MAX_FETCHES_PER_COURSE or url in result.checked_urls:
             return None
         fetches += 1
         result.checked_urls.append(url)
-        return _fetch(url)
+        page = _fetch(url)
+        if page[1]:
+            fetched += 1
+        return page
 
     # The discovery Lambda may already have confirmed TeeItUp; re-check it is
     # still there rather than taking the old row's word for it.
@@ -290,6 +294,11 @@ def fingerprint(course: dict) -> Fingerprint:
             )
             result.evidence = f"booking engine still answers at {known_domain}"
             return result
+
+    #: Path hints are worth trying on the course's own site. A domain invented
+    #: from the course name gets exactly one look: three paths on four guessed
+    #: domains is most of a run's budget spent proving names do not exist.
+    own_site = (course.get("website") or "").rstrip("/")
 
     for start in website_guesses(course):
         first = visit(start)
@@ -369,8 +378,9 @@ def fingerprint(course: dict) -> Fingerprint:
                 return result
 
         # A couple of conventional booking paths, for sites whose booking link
-        # is JavaScript rather than an anchor.
-        for hint in BOOKING_PATH_HINTS[:2]:
+        # is JavaScript rather than an anchor. Only the real site gets these.
+        on_own_site = bool(own_site) and start.rstrip("/") == own_site
+        for hint in BOOKING_PATH_HINTS[:2] if on_own_site else ():
             probe = urllib.parse.urljoin(final, hint)
             step = visit(probe)
             if step is None:
@@ -392,4 +402,15 @@ def fingerprint(course: dict) -> Fingerprint:
                 result.evidence = f"booking path {probe} is a TeeItUp engine"
                 return result
 
+    # Say why the row is still unknown: a site that never answered needs a
+    # different response (backoff, maybe a person) from a page that loaded and
+    # simply named no engine we know.
+    if not result.checked_urls:
+        result.evidence = "no website to check"
+    elif not fetched:
+        result.evidence = f"site unreachable: no page loaded in {fetches} attempts"
+    else:
+        result.evidence = (
+            f"no known booking engine on {fetched} of {fetches} fetched pages"
+        )
     return result
