@@ -353,10 +353,9 @@ class ForeUpProvider(BookingEngineProvider):
     (``/index.php/booking/<course_id>/<schedule_id>``), so :meth:`from_row`
     reads them off the row and never touches the network.
 
-    ``parse_slots`` is not written yet: the availability payload has not been
-    seen for a course with live inventory, so this class stays out of
-    :data:`ENGINE_PROVIDERS` until it can be. ``docs/provider-adapters.md``
-    records what is known about the endpoint.
+    ``parse_slots`` matches a payload read from live tee sheets (Babe Zaharias
+    19717/2254, Sunkist 21874/9160 and Robert T. Lynch 19865/2748 on
+    2026-11-21): a bare JSON array of tee times in course-local wall clock.
     """
 
     label = "foreup"
@@ -435,10 +434,59 @@ class ForeUpProvider(BookingEngineProvider):
         return f"{self.api_url}?{query}"
 
     def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
-        raise NotImplementedError(
-            "foreup availability has not been seen for a course with live "
-            "inventory; see docs/provider-adapters.md"
-        )
+        """Slots on the requested local date, in the window, for the party size.
+
+        ``time`` is already course-local wall clock (``"2026-11-21 14:50"``), so
+        it compares directly against the window. The API filters by the
+        ``players`` parameter as well, but ``allowed_group_sizes`` arrives as
+        strings and can be narrower than the seat count (Babe Zaharias only
+        seats 3 and 4), so the slot's own numbers are checked here too.
+        """
+        if not isinstance(payload, list):
+            raise ValueError(
+                f"foreup returned {type(payload).__name__}, not a tee-time list"
+            )
+
+        earliest = request.earliest_time or time.min
+        latest = request.latest_time or time.max
+        seen: set[tuple[str, time]] = set()
+        results: list[dict] = []
+
+        for tee in payload:
+            if not isinstance(tee, dict):
+                raise ValueError(f"foreup tee time is not an object: {tee!r}")
+            try:
+                start = datetime.fromisoformat(tee["time"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f"foreup tee time has no usable time: {tee!r}"
+                ) from error
+
+            if start.date() != request.date:
+                continue
+            if not (earliest <= start.time() <= latest):
+                continue
+            if int(tee.get("available_spots") or 0) < request.players:
+                continue
+            groups = {str(size) for size in tee.get("allowed_group_sizes") or []}
+            if groups and str(request.players) not in groups:
+                continue
+
+            name = tee.get("course_name") or self.display_name or self.label
+            key = (name, start.time())
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                {
+                    "date": request.date,
+                    "start_time": start.time(),
+                    "course_name": name,
+                    "players": request.players,
+                }
+            )
+
+        return results
 
 
 #: Row label -> engine adapter. Discovery and the fingerprint worker write these
@@ -447,6 +495,7 @@ class ForeUpProvider(BookingEngineProvider):
 ENGINE_PROVIDERS: dict[str, type[BookingEngineProvider]] = {
     "teeitup": TeeItUpProvider,
     "teeitup-confirmed": TeeItUpProvider,
+    "foreup": ForeUpProvider,
 }
 
 

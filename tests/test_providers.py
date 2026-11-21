@@ -218,7 +218,7 @@ def test_from_row_returns_none_without_the_ids_the_api_needs(row):
 
 def test_labels_without_an_engine_are_counted_not_dropped():
     rows = [
-        {"pk": "course#fore", "provider": "foreup"},
+        {"pk": "course#chrono", "provider": "chronogolf"},
         {"pk": "course#unknown", "provider": "unknown"},
         {
             "pk": "course#ok",
@@ -228,7 +228,7 @@ def test_labels_without_an_engine_are_counted_not_dropped():
         },
         {"pk": "meta#last_sweep"},
     ]
-    assert provider_coverage(rows) == {"foreup": 1, "unknown": 1}
+    assert provider_coverage(rows) == {"chronogolf": 1, "unknown": 1}
 
 
 def test_two_rows_for_one_facility_become_one_provider():
@@ -397,3 +397,135 @@ def test_foreup_from_row_needs_both_ids():
     }
     assert ForeUpProvider.from_row(only_course) is None
     assert ForeUpProvider.from_row(only_schedule) is None
+
+
+# Trimmed from live foreup tee sheets on 2026-11-21 (Babe Zaharias 19717/2254
+# and Sunkist 21874/9160). ``time`` is course-local wall clock and
+# ``allowed_group_sizes`` arrives as strings.
+FOREUP_TEE_TIMES = [
+    {
+        "time": "2026-11-21 06:50",
+        "start_front": 202610210650,
+        "course_id": 19717,
+        "course_name": "Babe Zaharias Golf Course",
+        "schedule_id": 2254,
+        "teesheet_id": 2254,
+        "available_spots": 4,
+        "available_spots_18": 4,
+        "maximum_players_per_booking": 4,
+        "minimum_players": 1,
+        "allowed_group_sizes": ["3", "4"],
+        "holes": 18,
+        "green_fee": 25,
+    },
+    {
+        "time": "2026-11-21 07:40",
+        "course_id": 19717,
+        "course_name": "Babe Zaharias Golf Course",
+        "schedule_id": 2254,
+        "available_spots": 4,
+        "allowed_group_sizes": ["3", "4"],
+        "holes": 18,
+    },
+    {
+        "time": "2026-11-21 06:52",
+        "course_id": 21874,
+        "course_name": "Sunkist Country Club",
+        "schedule_id": 9160,
+        "available_spots": 2,
+        "allowed_group_sizes": ["1", "2", "3", "4"],
+        "holes": "9/18",
+    },
+    {
+        "time": "2026-11-22 08:00",
+        "course_id": 21874,
+        "course_name": "Sunkist Country Club",
+        "schedule_id": 9160,
+        "available_spots": 4,
+        "allowed_group_sizes": ["1", "2", "3", "4"],
+        "holes": "9/18",
+    },
+]
+
+
+def _foreup(**kwargs):
+    return ForeUpProvider(
+        course_id="19717",
+        schedule_id="2254",
+        display_name="Babe Zaharias Golf Course",
+        **kwargs,
+    )
+
+
+def test_foreup_parses_a_live_tee_sheet_payload():
+    """The payload read from a live foreup tee sheet becomes slots."""
+    slots = _foreup().parse_slots(
+        FOREUP_TEE_TIMES, SearchRequest(date=date(2026, 11, 21), players=2)
+    )
+
+    assert [
+        (slot["start_time"], slot["course_name"], slot["players"]) for slot in slots
+    ] == [(time(6, 52), "Sunkist Country Club", 2)]
+
+
+def test_foreup_honours_the_group_sizes_and_seats_a_slot_has():
+    """Babe Zaharias books only 3 and 4 and its 06:50 slot seats 4; Sunkist takes 2."""
+    provider = _foreup()
+    request = SearchRequest(date=date(2026, 11, 21), players=4)
+
+    assert [
+        slot["start_time"] for slot in provider.parse_slots(FOREUP_TEE_TIMES, request)
+    ] == [time(6, 50), time(7, 40)]
+
+    # A two-ball cannot take a slot that only admits 3 or 4, and the Sunkist
+    # 06:52 slot has two seats while its 11/22 slot is another day.
+    two = SearchRequest(date=date(2026, 11, 21), players=2)
+    assert [
+        slot["course_name"] for slot in provider.parse_slots(FOREUP_TEE_TIMES, two)
+    ] == ["Sunkist Country Club"]
+
+
+def test_foreup_filters_by_window_and_date():
+    request = SearchRequest(
+        date=date(2026, 11, 21), players=4, earliest_time=time(7, 0)
+    )
+
+    assert [
+        slot["start_time"] for slot in _foreup().parse_slots(FOREUP_TEE_TIMES, request)
+    ] == [time(7, 40)]
+
+
+def test_foreup_raises_on_a_payload_it_does_not_know():
+    provider = _foreup()
+    request = SearchRequest(date=date(2026, 11, 21), players=4)
+
+    # The API answers ``false`` for an unknown schedule id.
+    with pytest.raises(ValueError, match="not a tee-time list"):
+        provider.parse_slots(False, request)
+    with pytest.raises(ValueError, match="no usable time"):
+        provider.parse_slots([{"course_name": "Babe Zaharias"}], request)
+
+
+def test_foreup_is_registered_and_builds_options_end_to_end(monkeypatch):
+    assert ENGINE_PROVIDERS["foreup"] is ForeUpProvider
+
+    provider = ForeUpProvider.from_row(
+        {
+            "pk": "course#robert-t-lynch-municipal-golf-course",
+            "provider": "foreup",
+            "name": "Robert T. Lynch Municipal Golf Course",
+            "foreup_course_id": "19865",
+            "foreup_schedule_id": "2748",
+        }
+    )
+    monkeypatch.setattr(provider, "_fetch_json", lambda url: FOREUP_TEE_TIMES)
+
+    options = provider.search(
+        SearchRequest(date=date(2026, 11, 21), players=4), distance_miles=2.5
+    )
+
+    assert [option.provider for option in options] == ["foreup-19865"] * 2
+    assert options[0].booking_url == (
+        "https://foreupsoftware.com/index.php/booking/19865/2748"
+    )
+    assert options[0].distance_miles == 2.5

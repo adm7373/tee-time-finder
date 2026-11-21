@@ -103,7 +103,7 @@ page load to every search.
 - Header `x-be-alias: <alias>`; `TeeItUpProvider` paces requests two seconds apart.
 - Slots carry UTC instants and `rates[].allowedPlayers`.
 
-### foreup — from_row done, parse_slots pending
+### foreup — implemented
 
 - Discovered from a course site's booking link, e.g. Robert T. Lynch Municipal
   Golf Course: `booking_domain: foreupsoftware.com`, evidence
@@ -111,15 +111,28 @@ page load to every search.
 - Booking page: `/index.php/booking/<course_id>/<schedule_id>`
 - JSON API: `/index.php/api/booking/times`
 - A request of the form
-  `?time=all&date=11-27-2026&holes=all&players=2&schedule_id=2748&booking_class=default`
-  answered `200` with a JSON array — `[]` for that course in late November.
+  `?time=all&date=11-21-2026&holes=all&players=4&schedule_id=2748&booking_class=default`
+  answers `200` with a JSON array of tee times. It needs no cookie, session or
+  challenge, so the worker can call it directly.
 - The fingerprint worker records the booking link it followed
   (`Fingerprint.booking_link`) and, for foreup, stores `foreup_course_id` and
   `foreup_schedule_id` on the row (`foreup_ids`). `ForeUpProvider.from_row`
   therefore reads the row and never fetches the booking page.
-- Still unverified: whether `booking_class` or `api_key` are required, and the
-  slot shape. `ForeUpProvider.parse_slots` raises until that is settled, which
-  is why the class is not yet in `ENGINE_PROVIDERS`.
+- Payload, read from live tee sheets on 2026-11-21 — Babe Zaharias (Tampa,
+  `19717/2254`), Sunkist (`21874/9160`) and Robert T. Lynch (`19865/2748`):
+  a bare array of objects with `time: "2026-11-21 14:50"` (course-local wall
+  clock, no offset), `course_name`, `course_id`, `schedule_id`,
+  `available_spots`, `allowed_group_sizes: ["3", "4"]` (strings, and often
+  narrower than the seat count), `minimum_players`,
+  `maximum_players_per_booking`, `holes`, and the green/cart fee fields.
+- `players` filters on the server as well: a two-ball asking Babe Zaharias,
+  which only books 3 and 4, gets `[]`. `parse_slots` repeats the check against
+  `available_spots` and `allowed_group_sizes` so the adapter does not depend on
+  it.
+- `booking_class=default` makes no difference (byte-identical responses with
+  and without), and `time=all&holes=all` are accepted as before.
+- An unknown `schedule_id` answers `false`, not an array: `parse_slots` raises
+  on that rather than reporting an empty tee sheet.
 - The schedule id is mandatory and cannot be replaced by the course id: for
   course `19865`, `schedule_id=2748` answers `[]` while `schedule_id=19865`
   answers `false`, and no `schedule_id` or a `course_id` parameter is an error.
