@@ -200,6 +200,18 @@ class CourseStore:
     def put_meta(self, key: str, value: str) -> None:
         self.put({"pk": f"meta#{key}", "value": value})
 
+    def delete(self, slug: str) -> bool:
+        """Delete a course row by slug or pk."""
+        if self._table is None:
+            return False
+        try:
+            pk = slug if slug.startswith("course#") else f"course#{self.slug(slug)}"
+            self._table.delete_item(Key={"pk": pk})
+            return True
+        except Exception as error:
+            logger.warning("course delete failed for %s: %s", slug, error)
+            return False
+
 
 def _probe(
     row: dict,

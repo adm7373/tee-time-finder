@@ -37,6 +37,12 @@ STEPS: dict[str, dict[str, Any]] = {
         "label": "Fingerprint batch",
         "detail": "Fetches up to 10 unclassified course sites to find their booking engine.",
     },
+    "seed": {
+        "function": None,
+        "payload": {},
+        "label": "Seed canonical courses",
+        "detail": "Re-seeds the 18 canonical courses and coordinates directly into DynamoDB.",
+    },
 }
 
 
@@ -61,21 +67,56 @@ def require_admin(claims: dict = Depends(require_user)) -> dict:
 
 
 def _function_name(step: str) -> str:
-    return f"{get_settings().project_name}-{STEPS[step]['function']}"
+    func = STEPS[step]["function"]
+    if not func:
+        return ""
+    return f"{get_settings().project_name}-{func}"
 
 
-def trigger(step: str, payload: dict | None = None) -> dict:
+def trigger(
+    step: str,
+    payload: dict | None = None,
+    course_store=None,
+    geocode_store=None,
+) -> dict:
     """Start a worker and return at once.
 
-    ``InvocationType="Event"`` is the point: a synchronous invoke would hold the
-    API request open for the worker's whole runtime and hit the 30-second
-    timeout, killing the worker halfway through and leaving a partial table
-    with nothing to show for it.
+    ``InvocationType="Event"`` is the point for long-running Lambda workers: a
+    synchronous invoke would hold the API request open for the worker's whole
+    runtime and hit the 30-second timeout. Synchronous steps like 'seed' execute
+    directly against the database.
     """
     if step not in STEPS:
         raise HTTPException(status_code=404, detail=f"Unknown step: {step}")
 
     settings = get_settings()
+
+    if step == "seed":
+        from .seed_data import seed_courses
+
+        if course_store is None and settings.courses_table_name:
+            from .discovery import CourseStore
+
+            course_store = CourseStore(settings.courses_table_name)
+        if geocode_store is None and settings.geocode_table_name:
+            from .geo import GeocodeStore
+
+            geocode_store = GeocodeStore(settings.geocode_table_name)
+
+        if course_store is None:
+            raise HTTPException(
+                status_code=503, detail="No courses table configured for seeding"
+            )
+
+        seeded = seed_courses(course_store, geocode_store)
+        return {
+            "step": step,
+            "started": True,
+            "status_code": 200,
+            "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "payload": {"count": len(seeded)},
+        }
+
     if not settings.aws_region:
         raise HTTPException(
             status_code=503, detail="No AWS region configured for worker invocation"

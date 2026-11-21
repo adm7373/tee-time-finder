@@ -57,7 +57,11 @@ def test_admin_page_hides_the_section_from_non_admins():
 
     assert body["admin"] is False
     # The steps are still listed so the page can describe what admins can do.
-    assert {step["id"] for step in body["steps"]} == {"discover", "fingerprint"}
+    assert {step["id"] for step in body["steps"]} == {
+        "discover",
+        "fingerprint",
+        "seed",
+    }
 
 
 def test_trigger_invokes_asynchronously(client, monkeypatch):
@@ -122,3 +126,117 @@ def test_function_names_follow_the_project_name(monkeypatch):
         assert admin._function_name("discover") == "custom-discover"
     finally:
         get_settings.cache_clear()
+
+
+class _InMemoryCourseStore:
+    def __init__(self, items=None):
+        self._items = {item["pk"]: dict(item) for item in (items or [])}
+
+    def scan(self):
+        return list(self._items.values())
+
+    def meta(self, key):
+        return self._items.get(f"meta#{key}")
+
+    def put_meta(self, key, value):
+        self._items[f"meta#{key}"] = {"pk": f"meta#{key}", "value": value}
+
+    def put(self, item):
+        self._items[item["pk"]] = dict(item)
+
+    def delete(self, slug):
+        pk = slug if slug.startswith("course#") else f"course#{slug}"
+        if pk in self._items:
+            del self._items[pk]
+            return True
+        return True
+
+
+def test_list_courses_requires_admin():
+    from app.auth import require_user
+
+    app.dependency_overrides[require_user] = lambda: {"cognito:groups": ["users"]}
+    try:
+        response = TestClient(app).get("/admin/courses")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 403
+
+
+def test_list_courses_returns_metrics_and_courses(client, monkeypatch):
+    store = _InMemoryCourseStore(
+        [
+            {
+                "pk": "course#presidents",
+                "name": "Presidents Golf Course",
+                "provider": "teeitup",
+                "distance_from_zip": 2.5,
+            },
+            {
+                "pk": "course#unknown-course",
+                "name": "Unknown Golf",
+                "provider": "unknown",
+                "distance_from_zip": 10.0,
+            },
+            {
+                "pk": "meta#last_sweep",
+                "value": "2026-11-20T12:00:00Z",
+            },
+        ]
+    )
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+
+    response = client.get("/admin/courses")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["metrics"]["total"] == 2
+    assert data["metrics"]["teeitup"] == 1
+    assert data["metrics"]["unknown"] == 1
+    assert data["metrics"]["last_sweep"] == "2026-11-20T12:00:00Z"
+    assert len(data["courses"]) == 2
+    assert data["courses"][0]["name"] == "Presidents Golf Course"
+
+
+def test_delete_course_requires_admin():
+    from app.auth import require_user
+
+    app.dependency_overrides[require_user] = lambda: {"cognito:groups": ["users"]}
+    try:
+        response = TestClient(app).delete("/admin/courses/presidents")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 403
+
+
+def test_delete_course_removes_from_store(client, monkeypatch):
+    store = _InMemoryCourseStore(
+        [
+            {
+                "pk": "course#presidents",
+                "name": "Presidents Golf Course",
+                "provider": "teeitup",
+            }
+        ]
+    )
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+
+    response = client.delete("/admin/courses/presidents")
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+    assert "course#presidents" not in store._items
+
+
+def test_seed_step_populates_stores(client, monkeypatch):
+    store = _InMemoryCourseStore()
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+    monkeypatch.setattr("app.main._geocode_store", lambda: None)
+
+    response = client.post("/admin/seed")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["step"] == "seed"
+    assert data["started"] is True
+    assert data["payload"]["count"] == 18
+    # All 18 courses are seeded into the store
+    assert len([k for k in store._items if k.startswith("course#")]) == 18
+

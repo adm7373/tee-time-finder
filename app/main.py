@@ -91,9 +91,64 @@ def run_step(
 
     Admin-only: membership of the Cognito ``admins`` group is the permission.
     The work runs in the worker Lambda under its own ten-minute timeout, so a
-    slow sweep never holds this request open.
+    slow sweep never holds this request open. Synchronous steps (like 'seed')
+    execute directly against the stores.
     """
-    return trigger(step)
+    return trigger(step, course_store=_course_store(), geocode_store=_geocode_store())
+
+
+@app.get("/admin/courses")
+def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
+    """List all courses in DynamoDB with metrics. Admin-only."""
+    store = _course_store()
+    raw_rows = store.scan()
+    courses = [r for r in raw_rows if r.get("pk", "").startswith("course#")]
+
+    by_provider: dict[str, int] = {}
+    for c in courses:
+        p = c.get("provider") or "unknown"
+        by_provider[p] = by_provider.get(p, 0) + 1
+
+    last_sweep_meta = store.meta("last_sweep")
+    last_sweep = last_sweep_meta.get("value") if last_sweep_meta else None
+
+    clean_courses = []
+    for c in courses:
+        item = dict(c)
+        if "distance_from_zip" in item and hasattr(item["distance_from_zip"], "__float__"):
+            item["distance_from_zip"] = float(item["distance_from_zip"])
+        clean_courses.append(item)
+
+    clean_courses.sort(
+        key=lambda x: (
+            x.get("distance_from_zip") if x.get("distance_from_zip") is not None else 999,
+            x.get("name", ""),
+        )
+    )
+
+    return {
+        "metrics": {
+            "total": len(clean_courses),
+            "teeitup": by_provider.get("teeitup", 0) + by_provider.get("teeitup-confirmed", 0),
+            "other": sum(
+                v for k, v in by_provider.items() if k not in ("teeitup", "teeitup-confirmed", "unknown")
+            ),
+            "unknown": by_provider.get("unknown", 0),
+            "by_provider": by_provider,
+            "last_sweep": last_sweep,
+        },
+        "courses": clean_courses,
+    }
+
+
+@app.delete("/admin/courses/{slug}")
+def delete_course(slug: str, user: dict = Depends(require_admin)) -> dict[str, object]:
+    """Delete a course from DynamoDB by slug. Admin-only."""
+    store = _course_store()
+    deleted = store.delete(slug)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete course")
+    return {"deleted": True, "slug": slug}
 
 
 @app.get("/admin")

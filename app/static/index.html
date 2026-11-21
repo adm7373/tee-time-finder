@@ -11,10 +11,10 @@
   </style>
 </head>
 <body class="bg-stone-50 text-stone-900 min-h-screen font-sans antialiased">
-  <div x-data="teeTimeApp()" x-init="init()" class="max-w-3xl mx-auto px-4 py-8">
+  <div x-data="teeTimeApp()" x-init="init()" class="max-w-4xl mx-auto px-4 py-8">
     
     <!-- Header -->
-    <header class="flex items-center justify-between pb-6 mb-6 border-b border-stone-200">
+    <header class="flex items-center justify-between pb-5 mb-5 border-b border-stone-200">
       <div>
         <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-emerald-950 flex items-center gap-2">
           <span>⛳</span> Tee Time Finder
@@ -33,7 +33,7 @@
           </button>
         </template>
         <template x-if="token">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2.5">
             <template x-if="isAdmin">
               <span class="bg-amber-100 text-amber-900 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-300">
                 Admin
@@ -57,11 +57,11 @@
     </div>
 
     <!-- Signed-out State -->
-    <div x-show="!token && !isLoadingAuth" x-cloak class="text-center py-12 px-4 bg-white rounded-xl border border-stone-200 shadow-sm">
-      <div class="text-4xl mb-3">🏌️‍♂️</div>
-      <h2 class="text-lg font-semibold text-stone-800 mb-1">Sign in to search tee times</h2>
+    <div x-show="!token && !isLoadingAuth" x-cloak class="text-center py-16 px-4 bg-white rounded-xl border border-stone-200 shadow-sm">
+      <div class="text-5xl mb-4">🏌️‍♂️</div>
+      <h2 class="text-xl font-semibold text-stone-800 mb-2">Sign in to search tee times</h2>
       <p class="text-stone-500 text-sm max-w-md mx-auto mb-6">
-        Search by date, party size, and radius. Authenticate securely with Cognito to view live tee times.
+        Search live public course tee times by date, radius, and party size. Authenticate securely with Cognito to begin.
       </p>
       <button 
         @click="login()" 
@@ -72,237 +72,418 @@
     </div>
 
     <!-- Loading Auth State -->
-    <div x-show="isLoadingAuth" x-cloak class="text-center py-12">
+    <div x-show="isLoadingAuth" x-cloak class="text-center py-16">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-800 border-t-transparent mb-3"></div>
       <p class="text-stone-500 text-sm">Authenticating session...</p>
     </div>
 
-    <!-- Main Content (Signed in) -->
+    <!-- Signed-in Workspace -->
     <div x-show="token" x-cloak class="space-y-6">
 
-      <!-- Search Form Card -->
-      <form @submit.prevent="searchTeeTimes()" class="bg-white p-6 rounded-xl border border-stone-200 shadow-sm space-y-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          <!-- Date -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="date">Date</label>
-            <input 
-              id="date" 
-              type="date" 
-              x-model="form.date" 
-              required 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            >
+      <!-- Navigation Tabs (Only when Admin) -->
+      <template x-if="isAdmin">
+        <nav class="flex items-center gap-3 border-b border-stone-200 pb-1">
+          <button 
+            type="button"
+            @click="activeTab = 'search'" 
+            :class="activeTab === 'search' ? 'border-emerald-800 text-emerald-950 font-semibold' : 'border-transparent text-stone-500 hover:text-stone-800 font-medium'"
+            class="border-b-2 py-2 px-3 text-sm transition flex items-center gap-2"
+          >
+            <span>🏌️ Search Tee Times</span>
+          </button>
+          <button 
+            type="button"
+            @click="activeTab = 'admin'; if (!adminCourses.length) loadAdminCourses()" 
+            :class="activeTab === 'admin' ? 'border-amber-700 text-amber-950 font-semibold' : 'border-transparent text-stone-500 hover:text-stone-800 font-medium'"
+            class="border-b-2 py-2 px-3 text-sm transition flex items-center gap-2"
+          >
+            <span>⚙️ Admin Console</span>
+            <span 
+              class="bg-amber-100 text-amber-900 text-xs px-2 py-0.5 rounded-full font-semibold border border-amber-300"
+              x-text="adminMetrics.total ? adminMetrics.total + ' courses' : '•'"
+            ></span>
+          </button>
+        </nav>
+      </template>
+
+      <!-- TAB 1: Search View -->
+      <div x-show="activeTab === 'search'" class="space-y-6">
+        
+        <!-- Search Form Card -->
+        <form @submit.prevent="searchTeeTimes()" class="bg-white p-6 rounded-xl border border-stone-200 shadow-sm space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <!-- Date -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="date">Date</label>
+              <input 
+                id="date" 
+                type="date" 
+                x-model="form.date" 
+                required 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+            </div>
+
+            <!-- ZIP Code -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="zip">ZIP Code</label>
+              <input 
+                id="zip" 
+                type="text" 
+                inputmode="numeric" 
+                x-model="form.zip_code" 
+                required 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+            </div>
+
+            <!-- Radius -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="radius">Radius (miles)</label>
+              <input 
+                id="radius" 
+                type="number" 
+                min="1" 
+                max="100" 
+                x-model.number="form.radius_miles" 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+            </div>
+
+            <!-- Players -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="players">Players</label>
+              <select 
+                id="players" 
+                x-model.number="form.players" 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+                <option value="1">1 player</option>
+                <option value="2">2 players</option>
+                <option value="3">3 players</option>
+                <option value="4">4 players</option>
+              </select>
+            </div>
+
+            <!-- Earliest Time -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="earliest">Earliest Time</label>
+              <input 
+                id="earliest" 
+                type="time" 
+                x-model="form.earliest_time" 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+            </div>
+
+            <!-- Latest Time -->
+            <div>
+              <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="latest">Latest Time</label>
+              <input 
+                id="latest" 
+                type="time" 
+                x-model="form.latest_time" 
+                class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+            </div>
           </div>
 
-          <!-- ZIP Code -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="zip">ZIP Code</label>
-            <input 
-              id="zip" 
-              type="text" 
-              inputmode="numeric" 
-              x-model="form.zip_code" 
-              required 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          <div class="pt-2 flex justify-end">
+            <button 
+              type="submit" 
+              :disabled="isSearching"
+              class="inline-flex items-center gap-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-medium text-sm px-6 py-2.5 rounded-lg shadow-sm transition"
             >
+              <template x-if="isSearching">
+                <span class="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+              </template>
+              <span x-text="isSearching ? 'Searching...' : 'Search Tee Times'"></span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Results Header & Filters -->
+        <div x-show="hasSearched" class="space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+            <div>
+              <h2 class="text-base font-semibold text-stone-800">
+                <span x-text="filteredResults().length"></span> tee time<span x-text="filteredResults().length === 1 ? '' : 's'"></span> found
+              </h2>
+            </div>
+
+            <!-- Client-side Filter & Sort Controls -->
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
+                <button 
+                  type="button"
+                  @click="filterTime = 'all'" 
+                  :class="filterTime === 'all' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                  class="px-2.5 py-1 rounded-md transition"
+                >All</button>
+                <button 
+                  type="button"
+                  @click="filterTime = 'morning'" 
+                  :class="filterTime === 'morning' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                  class="px-2.5 py-1 rounded-md transition"
+                >Morning</button>
+                <button 
+                  type="button"
+                  @click="filterTime = 'afternoon'" 
+                  :class="filterTime === 'afternoon' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                  class="px-2.5 py-1 rounded-md transition"
+                >Afternoon</button>
+              </div>
+
+              <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
+                <button 
+                  type="button"
+                  @click="sortBy = 'time'" 
+                  :class="sortBy === 'time' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                  class="px-2.5 py-1 rounded-md transition"
+                >⏱ Time</button>
+                <button 
+                  type="button"
+                  @click="sortBy = 'distance'" 
+                  :class="sortBy === 'distance' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
+                  class="px-2.5 py-1 rounded-md transition"
+                >📍 Distance</button>
+              </div>
+            </div>
           </div>
 
-          <!-- Radius -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="radius">Radius (miles)</label>
-            <input 
-              id="radius" 
-              type="number" 
-              min="1" 
-              max="100" 
-              x-model.number="form.radius_miles" 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            >
+          <!-- Empty Results -->
+          <div x-show="filteredResults().length === 0" class="text-center py-12 bg-white rounded-xl border border-stone-200 p-6">
+            <p class="text-stone-500 text-sm">No tee times matched your criteria. Try widening your radius or adjusting time filters.</p>
           </div>
 
-          <!-- Players -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="players">Players</label>
-            <select 
-              id="players" 
-              x-model.number="form.players" 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            >
-              <option value="1">1 player</option>
-              <option value="2">2 players</option>
-              <option value="3">3 players</option>
-              <option value="4">4 players</option>
-            </select>
-          </div>
+          <!-- Results Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <template x-for="(time, idx) in filteredResults()" :key="idx">
+              <div class="bg-white p-4 rounded-xl border border-stone-200 hover:border-emerald-600 transition shadow-sm flex flex-col justify-between">
+                <div>
+                  <div class="flex items-start justify-between gap-2">
+                    <h3 class="font-semibold text-stone-900 text-base leading-tight" x-text="time.course_name"></h3>
+                    <span 
+                      class="shrink-0 bg-emerald-50 text-emerald-800 font-bold text-sm px-2.5 py-1 rounded-lg border border-emerald-200" 
+                      x-text="formatTime(time.start_time)"
+                    ></span>
+                  </div>
 
-          <!-- Earliest Time -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="earliest">Earliest Time</label>
-            <input 
-              id="earliest" 
-              type="time" 
-              x-model="form.earliest_time" 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            >
-          </div>
+                  <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500">
+                    <span class="flex items-center gap-1">
+                      <span>📍</span>
+                      <span x-text="time.distance_miles ? time.distance_miles + ' miles away' : 'Distance unknown'"></span>
+                    </span>
+                    <span class="flex items-center gap-1">
+                      <span>👥</span>
+                      <span x-text="time.players + (time.players === 1 ? ' player' : ' players')"></span>
+                    </span>
+                  </div>
+                </div>
 
-          <!-- Latest Time -->
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wider text-stone-600 mb-1" for="latest">Latest Time</label>
-            <input 
-              id="latest" 
-              type="time" 
-              x-model="form.latest_time" 
-              class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            >
+                <!-- Direct Booking Link -->
+                <div class="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                  <span class="text-xs text-stone-400 capitalize" x-text="time.provider || 'Direct'"></span>
+                  <template x-if="time.booking_url">
+                    <a 
+                      :href="time.booking_url" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+                    >
+                      <span>Book on course site</span>
+                      <span>&rarr;</span>
+                    </a>
+                  </template>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
+      </div>
 
-        <div class="pt-2 flex justify-end">
+      <!-- TAB 2: Admin Console View -->
+      <div x-show="activeTab === 'admin' && isAdmin" class="space-y-6">
+        
+        <!-- Admin Header / Refresh -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm">
+          <div>
+            <h2 class="text-base font-bold text-amber-950 flex items-center gap-2">
+              <span>⚙️</span> Course Database & Worker Controls
+            </h2>
+            <p class="text-xs text-amber-800 mt-1">
+              Trigger background discovery and classification workers or manage registered courses.
+            </p>
+          </div>
           <button 
-            type="submit" 
-            :disabled="isSearching"
-            class="inline-flex items-center gap-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-medium text-sm px-6 py-2.5 rounded-lg shadow-sm transition"
+            type="button"
+            @click="loadAdminCourses()" 
+            :disabled="coursesLoading"
+            class="self-start sm:self-auto inline-flex items-center gap-1.5 bg-amber-800 hover:bg-amber-900 disabled:opacity-50 text-white text-xs font-semibold px-3 py-2 rounded-lg transition shadow-sm"
           >
-            <template x-if="isSearching">
-              <span class="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+            <template x-if="coursesLoading">
+              <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
             </template>
-            <span x-text="isSearching ? 'Searching...' : 'Search Tee Times'"></span>
+            <span x-text="coursesLoading ? 'Refreshing...' : '🔄 Refresh Data'"></span>
           </button>
         </div>
-      </form>
 
-      <!-- Admin Panel (shown when user is in the admins group) -->
-      <template x-if="isAdmin">
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 shadow-sm space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-bold text-amber-950 flex items-center gap-2">
-              <span>⚙️</span> Admin Controls
-            </h2>
-            <span class="text-xs text-amber-700 font-medium">Asynchronous Worker Triggers</span>
+        <!-- Metric Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
+            <div class="text-xs font-medium text-stone-500 uppercase tracking-wider">Total Courses</div>
+            <div class="text-2xl font-bold text-stone-900 mt-1" x-text="adminMetrics.total"></div>
           </div>
-          
+          <div class="bg-white p-4 rounded-xl border border-emerald-200 shadow-sm">
+            <div class="text-xs font-medium text-emerald-700 uppercase tracking-wider">TeeItUp Active</div>
+            <div class="text-2xl font-bold text-emerald-900 mt-1" x-text="adminMetrics.teeitup"></div>
+          </div>
+          <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+            <div class="text-xs font-medium text-blue-700 uppercase tracking-wider">Other Providers</div>
+            <div class="text-2xl font-bold text-blue-900 mt-1" x-text="adminMetrics.other"></div>
+          </div>
+          <div class="bg-white p-4 rounded-xl border border-amber-200 shadow-sm">
+            <div class="text-xs font-medium text-amber-700 uppercase tracking-wider">Unclassified</div>
+            <div class="text-2xl font-bold text-amber-900 mt-1" x-text="adminMetrics.unknown"></div>
+          </div>
+        </div>
+
+        <!-- Worker Trigger Actions -->
+        <div class="bg-white rounded-xl border border-stone-200 shadow-sm p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-stone-100 pb-3">
+            <h3 class="text-sm font-bold text-stone-900">Worker Operations</h3>
+            <span class="text-xs text-stone-500">
+              Last sweep: <span class="font-medium text-stone-700" x-text="adminMetrics.last_sweep ? formatTimestamp(adminMetrics.last_sweep) : 'Never'"></span>
+            </span>
+          </div>
+
           <template x-if="adminAlert">
-            <div class="text-xs p-2.5 rounded bg-white border border-amber-300 text-amber-900" x-text="adminAlert"></div>
+            <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 font-medium" x-text="adminAlert"></div>
           </template>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <template x-for="step in adminSteps" :key="step.id">
-              <div class="bg-white p-3 rounded-lg border border-amber-200 flex flex-col justify-between">
+              <div class="p-3.5 rounded-lg border border-stone-200 flex flex-col justify-between bg-stone-50">
                 <div>
-                  <h3 class="font-semibold text-xs text-stone-900" x-text="step.label"></h3>
+                  <h4 class="font-semibold text-xs text-stone-900" x-text="step.label"></h4>
                   <p class="text-xs text-stone-500 mt-1" x-text="step.detail"></p>
                 </div>
-                <div class="mt-3 pt-2 border-t border-stone-100 flex justify-end">
+                <div class="mt-3 pt-2 border-t border-stone-200/60 flex justify-end">
                   <button 
+                    type="button"
                     @click="triggerAdminStep(step.id)" 
                     :disabled="runningStep === step.id"
-                    class="text-xs bg-amber-800 hover:bg-amber-900 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded transition inline-flex items-center gap-1.5"
+                    class="text-xs bg-amber-800 hover:bg-amber-900 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded transition inline-flex items-center gap-1.5 shadow-sm"
                   >
                     <template x-if="runningStep === step.id">
                       <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
                     </template>
-                    <span x-text="runningStep === step.id ? 'Starting...' : 'Trigger run'"></span>
+                    <span x-text="runningStep === step.id ? 'Running...' : 'Run ' + step.label"></span>
                   </button>
                 </div>
               </div>
             </template>
           </div>
         </div>
-      </template>
 
-      <!-- Results Header & Filters -->
-      <div x-show="hasSearched" class="space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-          <div>
-            <h2 class="text-base font-semibold text-stone-800">
-              <span x-text="filteredResults().length"></span> tee time<span x-text="filteredResults().length === 1 ? '' : 's'"></span> found
-            </h2>
-          </div>
-
-          <!-- Client-side Filter & Sort Controls -->
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
-              <button 
-                type="button"
-                @click="filterTime = 'all'" 
-                :class="filterTime === 'all' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
-                class="px-2.5 py-1 rounded-md transition"
-              >All</button>
-              <button 
-                type="button"
-                @click="filterTime = 'morning'" 
-                :class="filterTime === 'morning' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
-                class="px-2.5 py-1 rounded-md transition"
-              >Morning</button>
-              <button 
-                type="button"
-                @click="filterTime = 'afternoon'" 
-                :class="filterTime === 'afternoon' ? 'bg-emerald-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
-                class="px-2.5 py-1 rounded-md transition"
-              >Afternoon</button>
+        <!-- Course Inventory Table Card -->
+        <div class="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+          <div class="p-4 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-bold text-stone-900">Course Inventory</h3>
+              <p class="text-xs text-stone-500 mt-0.5">
+                Showing <span class="font-semibold" x-text="filteredCourses().length"></span> of <span class="font-semibold" x-text="adminCourses.length"></span> registered courses
+              </p>
             </div>
 
-            <div class="inline-flex rounded-lg border border-stone-200 bg-white p-0.5 shadow-sm">
-              <button 
-                type="button"
-                @click="sortBy = 'time'" 
-                :class="sortBy === 'time' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
-                class="px-2.5 py-1 rounded-md transition"
-              >⏱ Time</button>
-              <button 
-                type="button"
-                @click="sortBy = 'distance'" 
-                :class="sortBy === 'distance' ? 'bg-stone-800 text-white font-medium' : 'text-stone-600 hover:text-stone-900'"
-                class="px-2.5 py-1 rounded-md transition"
-              >📍 Distance</button>
+            <!-- Search and Filter Bar -->
+            <div class="flex flex-wrap items-center gap-2">
+              <input 
+                type="text" 
+                x-model="courseSearch" 
+                placeholder="Search courses..." 
+                class="rounded-lg border border-stone-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-700 w-48"
+              >
+              <select 
+                x-model="courseProviderFilter" 
+                class="rounded-lg border border-stone-300 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-700 bg-white"
+              >
+                <option value="all">All Providers</option>
+                <option value="teeitup">TeeItUp Only</option>
+                <option value="other">Other Classified</option>
+                <option value="unknown">Unclassified (Unknown)</option>
+              </select>
             </div>
           </div>
-        </div>
 
-        <!-- Result Cards List -->
-        <div class="space-y-3">
-          <template x-for="item in filteredResults()" :key="item.course_name + item.start_time">
-            <div class="bg-white p-4 rounded-xl border border-stone-200 hover:border-stone-300 shadow-sm transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <div class="flex items-center gap-2">
-                  <h3 class="font-semibold text-stone-900 text-base" x-text="item.course_name"></h3>
-                  <span 
-                    class="text-xs px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium border border-stone-200"
-                    x-text="item.distance_miles ? '~' + item.distance_miles + ' mi' : 'distance unknown'"
-                  ></span>
-                </div>
-                <div class="text-xs text-stone-500 mt-1 flex items-center gap-3">
-                  <span>📅 <span x-text="item.date"></span></span>
-                  <span>⏰ <span class="font-semibold text-stone-700" x-text="formatTime(item.start_time)"></span></span>
-                  <span>👤 <span x-text="item.players"></span> player<span x-text="item.players === 1 ? '' : 's'"></span></span>
-                </div>
-              </div>
-
-              <!-- Booking Link -->
-              <div class="flex-shrink-0">
-                <template x-if="item.booking_url">
-                  <a 
-                    :href="item.booking_url" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    class="inline-flex items-center gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-medium px-4 py-2 rounded-lg transition shadow-sm"
-                  >
-                    <span>Book on TeeItUp</span>
-                    <span>↗</span>
-                  </a>
+          <!-- Courses Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs text-stone-600">
+              <thead class="bg-stone-50 text-stone-700 uppercase font-semibold text-[11px] tracking-wider border-b border-stone-200">
+                <tr>
+                  <th class="py-3 px-4">Course</th>
+                  <th class="py-3 px-3">Provider</th>
+                  <th class="py-3 px-3">Facility ID / Alias</th>
+                  <th class="py-3 px-3">Distance</th>
+                  <th class="py-3 px-3">Coordinates</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-stone-100">
+                <template x-for="course in filteredCourses()" :key="course.pk">
+                  <tr class="hover:bg-stone-50 transition">
+                    <td class="py-3 px-4 font-medium text-stone-900">
+                      <div x-text="course.name"></div>
+                      <div class="text-[10px] text-stone-400 font-mono mt-0.5" x-text="course.pk"></div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span 
+                        :class="{
+                          'bg-emerald-100 text-emerald-800 border-emerald-300': course.provider === 'teeitup' || course.provider === 'teeitup-confirmed',
+                          'bg-blue-100 text-blue-800 border-blue-300': course.provider && course.provider !== 'unknown' && course.provider !== 'teeitup' && course.provider !== 'teeitup-confirmed',
+                          'bg-amber-100 text-amber-800 border-amber-300': !course.provider || course.provider === 'unknown'
+                        }"
+                        class="px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block"
+                        x-text="course.provider || 'unknown'"
+                      ></span>
+                    </td>
+                    <td class="py-3 px-3">
+                      <div class="font-mono text-stone-800" x-text="course.facility_id || '—'"></div>
+                      <div class="text-[10px] text-stone-400 truncate max-w-[150px]" x-text="course.x_be_alias || course.booking_domain || '—'"></div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span x-text="course.distance_from_zip ? '~' + course.distance_from_zip + ' mi' : '—'"></span>
+                    </td>
+                    <td class="py-3 px-3 font-mono text-[10px] text-stone-500 whitespace-nowrap">
+                      <span x-text="course.lat && course.lon ? Number(course.lat).toFixed(4) + ', ' + Number(course.lon).toFixed(4) : '—'"></span>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button 
+                        type="button"
+                        @click="deleteCourse(course.pk, course.name)" 
+                        :disabled="deletingSlug === course.pk"
+                        class="text-red-600 hover:text-red-800 font-semibold text-xs transition disabled:opacity-50"
+                        title="Delete Course"
+                      >
+                        <span x-text="deletingSlug === course.pk ? '...' : 'Delete'"></span>
+                      </button>
+                    </td>
+                  </tr>
                 </template>
-              </div>
-            </div>
-          </template>
-
-          <!-- No results empty state -->
-          <div x-show="filteredResults().length === 0" class="text-center py-10 bg-white rounded-xl border border-stone-200 text-stone-500 text-sm">
-            No tee times found matching your criteria. Try widening your radius or adjusting your time window.
+                <template x-if="filteredCourses().length === 0">
+                  <tr>
+                    <td colspan="6" class="py-8 text-center text-stone-400 text-xs">
+                      No courses match your filter.
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </div>
+
       </div>
+
     </div>
   </div>
 
@@ -313,9 +494,16 @@
         loginUrl: null,
         isLoadingAuth: false,
         isAdmin: false,
+        activeTab: 'search',
         adminSteps: [],
         adminAlert: '',
         runningStep: null,
+        coursesLoading: false,
+        adminCourses: [],
+        adminMetrics: { total: 0, teeitup: 0, other: 0, unknown: 0, last_sweep: null },
+        courseSearch: '',
+        courseProviderFilter: 'all',
+        deletingSlug: null,
         errorMessage: '',
         isSearching: false,
         hasSearched: false,
@@ -377,7 +565,10 @@
         logout() {
           this.token = null;
           this.isAdmin = false;
+          this.activeTab = 'search';
           this.adminSteps = [];
+          this.adminCourses = [];
+          this.adminMetrics = { total: 0, teeitup: 0, other: 0, unknown: 0, last_sweep: null };
           this.results = [];
           this.hasSearched = false;
           sessionStorage.removeItem('access_token');
@@ -413,11 +604,54 @@
               const data = await resp.json();
               this.isAdmin = Boolean(data.admin);
               this.adminSteps = data.steps || [];
+              if (this.isAdmin) {
+                await this.loadAdminCourses();
+              }
             } else if (resp.status === 401) {
               this.logout();
             }
           } catch (e) {
             console.warn('Could not verify admin status', e);
+          }
+        },
+
+        async loadAdminCourses() {
+          this.coursesLoading = true;
+          try {
+            const resp = await fetch('/admin/courses', {
+              headers: { 'authorization': 'Bearer ' + this.token }
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              this.adminCourses = data.courses || [];
+              this.adminMetrics = data.metrics || this.adminMetrics;
+            }
+          } catch (e) {
+            console.warn('Failed loading admin courses', e);
+          } finally {
+            this.coursesLoading = false;
+          }
+        },
+
+        async deleteCourse(slug, name) {
+          if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+          this.deletingSlug = slug;
+          try {
+            const resp = await fetch('/admin/courses/' + encodeURIComponent(slug), {
+              method: 'DELETE',
+              headers: { 'authorization': 'Bearer ' + this.token }
+            });
+            if (resp.ok) {
+              this.adminAlert = `Deleted ${name} from database.`;
+              await this.loadAdminCourses();
+            } else {
+              const data = await resp.json().catch(() => ({}));
+              this.adminAlert = 'Failed to delete course: ' + (data.detail || resp.status);
+            }
+          } catch (e) {
+            this.adminAlert = 'Error deleting course: ' + e.message;
+          } finally {
+            this.deletingSlug = null;
           }
         },
 
@@ -434,7 +668,10 @@
             });
             const data = await resp.json();
             if (resp.ok) {
-              this.adminAlert = `Triggered ${stepId} successfully at ${new Date().toLocaleTimeString()} (status ${data.status_code || 202}).`;
+              this.adminAlert = `Triggered ${stepId} successfully at ${new Date().toLocaleTimeString()} (status ${data.status_code || 200}).`;
+              if (stepId === 'seed') {
+                await this.loadAdminCourses();
+              }
             } else {
               this.adminAlert = 'Failed to trigger step: ' + (data.detail || resp.status);
             }
@@ -443,6 +680,29 @@
           } finally {
             this.runningStep = null;
           }
+        },
+
+        filteredCourses() {
+          let list = [...this.adminCourses];
+          if (this.courseSearch) {
+            const q = this.courseSearch.toLowerCase();
+            list = list.filter(c => 
+              (c.name && c.name.toLowerCase().includes(q)) ||
+              (c.provider && c.provider.toLowerCase().includes(q)) ||
+              (c.x_be_alias && c.x_be_alias.toLowerCase().includes(q)) ||
+              (c.facility_id && c.facility_id.toLowerCase().includes(q))
+            );
+          }
+          if (this.courseProviderFilter !== 'all') {
+            if (this.courseProviderFilter === 'teeitup') {
+              list = list.filter(c => c.provider === 'teeitup' || c.provider === 'teeitup-confirmed');
+            } else if (this.courseProviderFilter === 'unknown') {
+              list = list.filter(c => !c.provider || c.provider === 'unknown');
+            } else if (this.courseProviderFilter === 'other') {
+              list = list.filter(c => c.provider && c.provider !== 'unknown' && c.provider !== 'teeitup' && c.provider !== 'teeitup-confirmed');
+            }
+          }
+          return list;
         },
 
         async searchTeeTimes() {
@@ -519,6 +779,16 @@
           const ampm = hour >= 12 ? 'PM' : 'AM';
           const displayHour = hour % 12 || 12;
           return `${displayHour}:${minute} ${ampm}`;
+        },
+
+        formatTimestamp(isoStr) {
+          if (!isoStr) return '';
+          try {
+            const d = new Date(isoStr);
+            return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } catch {
+            return isoStr;
+          }
         }
       };
     }
