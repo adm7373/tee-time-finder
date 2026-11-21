@@ -14,7 +14,7 @@ import argparse
 
 from app.config import get_settings
 from app.discovery import CLASSIFIED_PROVIDERS, CourseStore
-from app.providers import ENGINE_PROVIDERS, provider_coverage
+from app.providers import ENGINE_PROVIDERS, TERMINAL_LABELS, provider_coverage
 
 
 def main(argv=None) -> int:
@@ -38,6 +38,15 @@ def main(argv=None) -> int:
     ]
     implemented = ", ".join(sorted(ENGINE_PROVIDERS))
     print(f"{len(rows)} course rows; engine adapters: {implemented}")
+
+    terminal: dict[str, int] = {}
+    for row in rows:
+        label = row.get("provider") or ""
+        if label in TERMINAL_LABELS:
+            terminal[label] = terminal.get(label, 0) + 1
+    if terminal:
+        held = ", ".join(f"{label} {count}" for label, count in sorted(terminal.items()))
+        print(f"terminal, no engine can serve these: {held}")
 
     missing = provider_coverage(rows)
     if not missing:

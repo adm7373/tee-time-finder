@@ -63,6 +63,11 @@ def test_admin_page_hides_the_section_from_non_admins():
     }
 
 
+def test_seed_step_is_gone(client):
+    """Canonical courses are rows now; nothing in code to re-seed them from."""
+    assert client.post("/admin/seed").status_code == 404
+
+
 def test_trigger_invokes_asynchronously(client, monkeypatch):
     calls = []
 

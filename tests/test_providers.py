@@ -16,6 +16,7 @@ from app.providers import (
     ForeUpProvider,
     TeeItUpProvider,
     get_providers_from_store,
+    get_search_providers,
     provider_coverage,
     search_all,
 )
@@ -338,6 +339,22 @@ def test_search_all_propagates_a_catalog_failure(monkeypatch):
             store=FakeGeo(),
             course_store=object(),
         )
+
+
+def test_terminal_labels_are_not_coverage_gaps():
+    """golfnow and members-only are not engines; no adapter would unlock them."""
+    rows = [
+        {"pk": "course#members", "provider": "members-only"},
+        {"pk": "course#marketplace", "provider": "golfnow"},
+        {"pk": "course#cps", "provider": "cps-golf"},
+        {"pk": "course#unknown", "provider": "unknown"},
+    ]
+    assert provider_coverage(rows) == {"cps-golf": 1, "unknown": 1}
+
+
+def test_no_course_store_means_no_catalog():
+    """There is no built-in course list to fall back on any more."""
+    assert get_search_providers() == []
 
 
 def test_foreup_from_row_reads_the_ids_the_fingerprint_stored():

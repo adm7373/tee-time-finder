@@ -20,7 +20,7 @@ setup.
   secrets live in Secrets Manager or an untracked `.env`.
 - Respect each site's terms, robots policy and rate limits. Keep requests paced;
   set `min_interval_seconds` on a new engine.
-- GolfNow is not a search provider. A `golfnow` verdict only tells discovery to
-  stop probing that course.
+- `golfnow` and `members-only` are terminal verdicts, not engines: they tell
+  discovery to stop probing, and neither counts as an adapter gap.
 - To tell what a worker actually did, read its CloudWatch log group: it logs one
   line per run, per confirmed booking and per fingerprint verdict.

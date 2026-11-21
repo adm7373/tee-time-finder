@@ -450,19 +450,27 @@ ENGINE_PROVIDERS: dict[str, type[BookingEngineProvider]] = {
 }
 
 
+#: Labels that are not engines and never will be. GolfNow is a consumer
+#: marketplace with no queryable tee sheet, and ``members-only`` means the only
+#: booking is a club portal. Counting either as a coverage gap would claim an
+#: adapter could unlock the course when none can.
+TERMINAL_LABELS = frozenset({"golfnow", "members-only"})
+
+
 def provider_coverage(rows: list[dict]) -> dict[str, int]:
     """Course rows whose label has no engine adapter, counted by label.
 
     This is the number that says whether writing another adapter would unlock
     anything, so it is shared by the catalog load and
-    ``scripts/unimplemented_providers.py``.
+    ``scripts/unimplemented_providers.py``. Terminal labels are left out for
+    that reason.
     """
     missing: dict[str, int] = {}
     for row in rows:
         if not str(row.get("pk", "")).startswith("course#"):
             continue
         label = row.get("provider") or "<missing>"
-        if label in ENGINE_PROVIDERS:
+        if label in ENGINE_PROVIDERS or label in TERMINAL_LABELS:
             continue
         missing[label] = missing.get(label, 0) + 1
     return missing

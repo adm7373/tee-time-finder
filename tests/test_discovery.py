@@ -245,10 +245,26 @@ def test_golfnow_booking_link_is_named(monkeypatch):
     assert "golfnow" in verdict.evidence
 
 
-@pytest.mark.parametrize("host, verdict", [("peabody.cps.golf", "cps-golf")])
+@pytest.mark.parametrize(
+    "host, verdict",
+    [
+        ("peabody.cps.golf", "cps-golf"),
+        # A clubhouse portal is not an engine: recording it as one would claim
+        # an adapter could unlock a members-only club.
+        ("thecapeclubofsharon.clubhouseonline-e3.net", "members-only"),
+    ],
+)
 def test_other_engine_hosts_are_named(host, verdict):
     page = f'<a href="https://{host}/book">Book a tee time</a>'
     assert fp._other_provider("https://course.test", page) == verdict
+
+
+def test_a_real_engine_outranks_a_member_portal_on_the_same_page():
+    page = (
+        '<a href="https://club.clubhouseonline-e3.net/">Members login</a>'
+        '<a href="https://peabody.cps.golf/book">Book a tee time</a>'
+    )
+    assert fp._other_provider("https://course.test", page) == "cps-golf"
 
 
 def test_foreup_booking_link_yields_the_ids_the_adapter_needs():
@@ -467,6 +483,13 @@ def test_unclassified_course_is_probed_again_next_run(monkeypatch):
     )
     assert result.probed == 1
     assert table.items["course#old-cc"]["discovery_attempts"] == 2
+
+
+def test_members_only_rows_are_not_probed():
+    """A club portal is terminal: discovery should not keep asking."""
+    from app.discovery import needs_probe
+
+    assert needs_probe({"provider": "members-only"}) is False
 
 
 def test_classified_course_is_left_alone(monkeypatch):

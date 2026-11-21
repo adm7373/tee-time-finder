@@ -58,6 +58,7 @@ CLASSIFIED_PROVIDERS = frozenset(
         "gallus",
         "supreme-golf",
         "cps-golf",
+        "members-only",
         "other",
     }
 )

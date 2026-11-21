@@ -57,6 +57,13 @@ OTHER_PROVIDERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("supreme-golf", ("supremenow.com", "supreme golf")),
 )
 
+#: Hosts that are club member portals, not booking engines. A course linking to
+#: one is recorded as ``members-only``: there is no public tee sheet to read, so
+#: no adapter could ever unlock it, and discovery should stop probing.
+MEMBER_PORTALS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("members-only", ("clubhouseonline",)),
+)
+
 #: Paths on a course's own site that usually hold the booking link.
 BOOKING_PATH_HINTS = (
     "/tee-times",
@@ -146,8 +153,13 @@ def _find_teeitup_alias_in_body(body: str) -> str:
 
 
 def _other_provider(url: str, body: str) -> str | None:
+    """Which booking engine, or member portal, the URL or page names.
+
+    Portals are checked after engines so a real booking link on the same page
+    wins; ``members-only`` is a terminal verdict, not a provider to implement.
+    """
     haystack = f"{url}\n{body[:50_000]}".lower()
-    for provider, markers in OTHER_PROVIDERS:
+    for provider, markers in OTHER_PROVIDERS + MEMBER_PORTALS:
         if any(marker in haystack for marker in markers):
             return provider
     return None
@@ -234,7 +246,8 @@ def website_guesses(course: dict) -> list[str]:
 
 @dataclass
 class Fingerprint:
-    provider: str = "unknown"  # teeitup | <other name> | other | unknown
+    # teeitup | <engine> | members-only | other | unknown
+    provider: str = "unknown"
     booking_domain: str = ""
     #: The booking URL itself when one was found; engines can carry ids in it.
     booking_link: str = ""

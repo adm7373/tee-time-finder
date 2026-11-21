@@ -18,6 +18,9 @@ It lists every course row whose `provider` label has no entry in
   teeitup, ...). An adapter unlocks those courses now.
 - **not classified yet** (`unknown`) — the fingerprint worker has not worked out
   where the course books. That is fingerprint work, not adapter work.
+- **terminal labels** (`golfnow`, `members-only`) — counted on their own line,
+  never as gaps: GolfNow has no queryable tee sheet, and `members-only` means a
+  club portal. No adapter can serve either.
 
 Take the label with the most rows unless there is a reason to prefer another.
 
@@ -114,41 +117,16 @@ page load to every search.
   (`Fingerprint.booking_link`) and, for foreup, stores `foreup_course_id` and
   `foreup_schedule_id` on the row (`foreup_ids`). `ForeUpProvider.from_row`
   therefore reads the row and never fetches the booking page.
-
-
-## Conventions
-
-- Respect each site's terms, robots policy and pacing; set `min_interval_seconds`
-  for the engine. Never automate a login or store a session cookie.
-- Never invent a facility id, alias, course id or schedule id: take it from the
-  row or from the booking page.
-- There are no per-course classes: every course is a row, and its label picks
-  the adapter that builds it.
-
-## Known engines
-
-### teeitup — implemented
-
-- API: `https://phx-api-be-east-1b.kenna.io/v2/tee-times?date=YYYY-MM-DD&facilityIds=<facility>&returnPromotedRates=true`
-- Header `x-be-alias: <alias>`; `TeeItUpProvider` paces requests two seconds apart.
-- Slots carry UTC instants and `rates[].allowedPlayers`.
-
-### foreup — from_row done, parse_slots pending
-
-- Discovered from a course site's booking link, e.g. Robert T. Lynch Municipal
-  Golf Course: `booking_domain: foreupsoftware.com`, evidence
-  `https://foreupsoftware.com/index.php/booking/19865/2748#/teetimes`.
-- Booking page: `/index.php/booking/<course_id>/<schedule_id>`
-- JSON API: `/index.php/api/booking/times`
-- A request of the form
-  `?time=all&date=11-27-2026&holes=all&players=2&schedule_id=2748&booking_class=default`
-  answered `200` with a JSON array — `[]` for that course in late November.
-- The fingerprint worker records the booking link it followed
-  (`Fingerprint.booking_link`) and, for foreup, stores `foreup_course_id` and
-  `foreup_schedule_id` on the row (`foreup_ids`). `ForeUpProvider.from_row`
-  therefore reads the row and never fetches the booking page.
 - Still unverified: whether `booking_class` or `api_key` are required, and the
   slot shape. `ForeUpProvider.parse_slots` raises until that is settled, which
   is why the class is not yet in `ENGINE_PROVIDERS`.
-- Rows classified before this landed predate the ids and need them backfilled
-  (or `provider` reset to `unknown` and the fingerprint worker re-run).
+- The schedule id is mandatory and cannot be replaced by the course id: for
+  course `19865`, `schedule_id=2748` answers `[]` while `schedule_id=19865`
+  answers `false`, and no `schedule_id` or a `course_id` parameter is an error.
+  Ould Newbury's link (`/booking/19969`) names only the course, and neither the
+  page nor an obvious API call resolves the schedule — the page renders it from
+  a template. Such a row keeps `foreup_course_id` and builds no provider until
+  the schedule is learned; `from_row` requires both ids.
+- Rows classified before this landed predate the ids. Robert T. Lynch is
+  backfilled (`19865`/`2748`); any other `foreup` row needs the fields written
+  on it, or `provider` reset to `unknown` so the fingerprint worker redoes it.
