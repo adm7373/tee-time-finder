@@ -957,3 +957,104 @@ def test_chronogolf_reads_the_unpadded_hour_live_sheets_send():
     )
 
     assert [slot["start_time"] for slot in slots] == [time(9, 20)]
+
+
+OLDE_SCOTLAND_UUID = "7c60cf72-5f0a-45cc-bfcb-2075f12c45ab"
+
+
+def test_teeitup_uuid_alias_is_named_after_the_course():
+    """Olde Scotland's tenant is a uuid: it must not surface as the provider name."""
+    provider = TeeItUpProvider(
+        facility_id="15419",
+        x_be_alias=OLDE_SCOTLAND_UUID,
+        display_name="Olde Scotland Links",
+    )
+
+    assert provider.name == "Olde Scotland Links"
+    # The API is still called with the uuid, exactly as before.
+    assert provider.request_headers()["x-be-alias"] == OLDE_SCOTLAND_UUID
+    assert provider.base_url == f"https://{OLDE_SCOTLAND_UUID}.book.teeitup.golf"
+    assert "facilityIds=15419" in provider.availability_url(
+        SearchRequest(date=date(2026, 11, 21), players=2)
+    )
+
+
+def test_teeitup_uuid_alias_without_a_course_name_gets_a_short_id():
+    provider = TeeItUpProvider(facility_id="15419", x_be_alias=OLDE_SCOTLAND_UUID)
+
+    assert provider.name == "teeitup-7c60cf72"
+
+
+def test_teeitup_slug_aliases_keep_their_slug_as_the_provider_name():
+    provider = TeeItUpProvider(
+        facility_id="3920",
+        x_be_alias="indian-ridge-golf-course",
+        display_name="Indian Ridge Golf Club",
+    )
+
+    assert provider.name == "indian-ridge-golf-course"
+
+
+def test_teeitup_row_with_a_uuid_alias_builds_readable_options(monkeypatch):
+    provider = TeeItUpProvider.from_row(
+        {
+            "pk": "course#olde-scotland-links",
+            "provider": "teeitup",
+            "name": "Olde Scotland Links",
+            "facility_id": "15419",
+            "x_be_alias": OLDE_SCOTLAND_UUID,
+        }
+    )
+    monkeypatch.setattr(
+        provider,
+        "_fetch_json",
+        lambda url: [
+            {
+                "teetimes": [
+                    {
+                        "teetime": "2026-11-21T16:40:00Z",
+                        "rates": [{"allowedPlayers": [1, 2]}],
+                    }
+                ]
+            }
+        ],
+    )
+
+    options = provider.search(SearchRequest(date=date(2026, 11, 21), players=2), 1.0)
+
+    assert [option.provider for option in options] == ["Olde Scotland Links"]
+
+
+def test_teeitup_uses_the_course_name_not_the_geocoded_address(monkeypatch):
+    """Rows carry a geocoded display_name; results and names must use ``name``."""
+    provider = TeeItUpProvider.from_row(
+        {
+            "pk": "course#olde-scotland-links",
+            "provider": "teeitup",
+            "name": "Olde Scotland Links",
+            "display_name": "Olde Scotland Links, 679, Spruce Street, Scotland Estates, "
+            "Bridgewater, Plymouth County, Massachusetts, 02324, United States",
+            "facility_id": "15419",
+            "x_be_alias": OLDE_SCOTLAND_UUID,
+        }
+    )
+    monkeypatch.setattr(
+        provider,
+        "_fetch_json",
+        lambda url: [
+            {
+                "teetimes": [
+                    {
+                        "teetime": "2026-11-21T16:40:00Z",
+                        "rates": [{"allowedPlayers": [2]}],
+                    }
+                ]
+            }
+        ],
+    )
+
+    options = provider.search(SearchRequest(date=date(2026, 11, 21), players=2), 0.0)
+
+    assert provider.name == "Olde Scotland Links"
+    assert [option.course_name for option in options] == ["Olde Scotland Links"]
+    assert [option.provider for option in options] == ["Olde Scotland Links"]

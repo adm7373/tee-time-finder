@@ -104,6 +104,11 @@ page load to every search.
 - API: `https://phx-api-be-east-1b.kenna.io/v2/tee-times?date=YYYY-MM-DD&facilityIds=<facility>&returnPromotedRates=true`
 - Header `x-be-alias: <alias>`; `TeeItUpProvider` paces requests two seconds apart.
 - Slots carry UTC instants and `rates[].allowedPlayers`.
+- Some tenants use a uuid as their alias (Olde Scotland Links is
+  `7c60cf72-5f0a-45cc-bfcb-2075f12c45ab`). The uuid is still the header and
+  the booking host, but it is not the provider name: results are attributed to
+  the course instead (`readable_provider_name`), and `from_row` prefers the
+  row's `name` over its geocoded `display_name`, which is an address.
 
 ### cps-golf — shape verified, transport blocked (not registered)
 

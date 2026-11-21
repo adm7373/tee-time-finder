@@ -207,6 +207,26 @@ class BookingEngineProvider(SearchProvider):
         ]
 
 
+#: Some TeeItUp tenants use a uuid rather than a slug as their alias (Olde
+#: Scotland Links is ``7c60cf72-5f0a-45cc-bfcb-2075f12c45ab``). That value is
+#: the right ``x-be-alias`` header, but it says nothing to a person, so such a
+#: provider is named after its course instead.
+UUID_ALIAS_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+)
+
+
+def readable_provider_name(alias: str, display_name: str, fallback: str) -> str:
+    """The alias when it reads like one, else the course name, else a short id."""
+    if alias and not UUID_ALIAS_RE.match(alias):
+        return alias
+    if display_name and not UUID_ALIAS_RE.match(display_name):
+        return display_name
+    if alias:
+        return f"{fallback}-{alias.split('-')[0]}"
+    return fallback
+
+
 class TeeItUpProvider(BookingEngineProvider):
     """TeeItUp for booking: a course is a facility id plus a site alias.
 
@@ -250,8 +270,11 @@ class TeeItUpProvider(BookingEngineProvider):
         else:
             self.base_url = ""
         # Subclasses declare their alias as a class attribute; expose it as the
-        # provider name so results are attributable to a course.
-        self.name = self.x_be_alias or type(self).__name__
+        # provider name so results are attributable to a course. A uuid alias
+        # is still sent as the header, but is never the name a person sees.
+        self.name = readable_provider_name(
+            self.x_be_alias, self.display_name, "teeitup"
+        )
 
     @classmethod
     def from_row(cls, row: dict) -> "TeeItUpProvider | None":
@@ -272,7 +295,10 @@ class TeeItUpProvider(BookingEngineProvider):
         return cls(
             facility_id=str(facility_id),
             x_be_alias=alias,
-            display_name=row.get("display_name") or row.get("name") or alias,
+            # ``name`` is the course; ``display_name`` is often its geocoded
+            # address ("Olde Scotland Links, 679, Spruce Street, ..."), which
+            # is not what a result should be called.
+            display_name=row.get("name") or row.get("display_name") or alias,
             coordinates=coordinates,
         )
 
