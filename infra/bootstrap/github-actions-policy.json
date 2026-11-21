@@ -79,7 +79,6 @@
         "lambda:GetPolicy",
         "lambda:AddPermission",
         "lambda:RemovePermission",
-        "lambda:PutFunctionConcurrency",
         "lambda:TagResource",
         "apigateway:GET",
         "apigateway:POST",

@@ -80,16 +80,14 @@ resource "aws_lambda_function" "api" {
 # deployment package as the API — the handler entry points differ.
 
 resource "aws_lambda_function" "discover" {
-  function_name                  = "${var.project_name}-discover"
-  role                           = aws_iam_role.lambda_execution.arn
-  runtime                        = "python3.12"
-  handler                        = "app.discovery.handler"
-  filename                       = data.archive_file.lambda.output_path
-  source_code_hash               = data.archive_file.lambda.output_base64sha256
-  timeout                        = 600
-  memory_size                    = 512
-  reserved_concurrent_executions = 1
-
+  function_name    = "${var.project_name}-discover"
+  role             = aws_iam_role.lambda_execution.arn
+  runtime          = "python3.12"
+  handler          = "app.discovery.handler"
+  filename         = data.archive_file.lambda.output_path
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+  timeout          = 600
+  memory_size      = 512
 
   environment {
     variables = {
@@ -102,15 +100,14 @@ resource "aws_lambda_function" "discover" {
 }
 
 resource "aws_lambda_function" "fingerprint" {
-  function_name                  = "${var.project_name}-fingerprint"
-  role                           = aws_iam_role.lambda_execution.arn
-  runtime                        = "python3.12"
-  handler                        = "app.fingerprint_handler.handler"
-  filename                       = data.archive_file.lambda.output_path
-  source_code_hash               = data.archive_file.lambda.output_base64sha256
-  timeout                        = 600
-  memory_size                    = 512
-  reserved_concurrent_executions = 1
+  function_name    = "${var.project_name}-fingerprint"
+  role             = aws_iam_role.lambda_execution.arn
+  runtime          = "python3.12"
+  handler          = "app.fingerprint_handler.handler"
+  filename         = data.archive_file.lambda.output_path
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+  timeout          = 600
+  memory_size      = 512
 
   environment {
     variables = {
