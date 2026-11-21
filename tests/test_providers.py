@@ -269,6 +269,7 @@ def test_from_row_returns_none_without_the_ids_the_api_needs(row):
 def test_labels_without_an_engine_are_counted_not_dropped():
     rows = [
         {"pk": "course#chrono", "provider": "chronogolf"},
+        {"pk": "course#phone", "provider": "phone-only"},
         {"pk": "course#unknown", "provider": "unknown"},
         {
             "pk": "course#ok",

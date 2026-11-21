@@ -18,9 +18,10 @@ It lists every course row whose `provider` label has no entry in
   teeitup, ...). An adapter unlocks those courses now.
 - **not classified yet** (`unknown`) — the fingerprint worker has not worked out
   where the course books. That is fingerprint work, not adapter work.
-- **terminal labels** (`golfnow`, `members-only`) — counted on their own line,
-  never as gaps: GolfNow has no queryable tee sheet, and `members-only` means a
-  club portal. No adapter can serve either.
+- **terminal labels** (`golfnow`, `members-only`, `phone-only`) — counted on
+  their own line, never as gaps: GolfNow has no queryable tee sheet,
+  `members-only` means a club portal, and `phone-only` means online booking is
+  switched off at the course. No adapter can serve any of them.
 
 Take the label with the most rows unless there is a reason to prefer another.
 

@@ -59,6 +59,7 @@ CLASSIFIED_PROVIDERS = frozenset(
         "supreme-golf",
         "cps-golf",
         "members-only",
+        "phone-only",
         "other",
     }
 )

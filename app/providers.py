@@ -677,10 +677,11 @@ ENGINE_PROVIDERS: dict[str, type[BookingEngineProvider]] = {
 
 
 #: Labels that are not engines and never will be. GolfNow is a consumer
-#: marketplace with no queryable tee sheet, and ``members-only`` means the only
-#: booking is a club portal. Counting either as a coverage gap would claim an
-#: adapter could unlock the course when none can.
-TERMINAL_LABELS = frozenset({"golfnow", "members-only"})
+#: marketplace with no queryable tee sheet, ``members-only`` means the only
+#: booking is a club portal, and ``phone-only`` means the course has online
+#: booking switched off and books by phone. Counting any of them as a coverage
+#: gap would claim an adapter could unlock the course when none can.
+TERMINAL_LABELS = frozenset({"golfnow", "members-only", "phone-only"})
 
 
 def provider_coverage(rows: list[dict]) -> dict[str, int]:
