@@ -489,6 +489,11 @@ def handler(event: dict | None = None, context=None) -> dict:
         total.details.extend(result.details)
         if result.error and not total.error:
             total.error = result.error
+        # One line per new pairing, so the run's actual result is readable in
+        # CloudWatch without scanning the table. The run id carries the box
+        # label, which is what says where the course came from.
+        for detail in result.details:
+            logger.info("discovery %s: confirmed %s", result.run_id, detail)
 
     logger.info(
         "discovery %s: swept=%s added=%d probed=%d teeitup=%d known=%d "

@@ -1,6 +1,8 @@
 """Tests for dynamic TeeItUp course handling, DynamoDB seeding, and search integration."""
 
 from datetime import date, time
+import logging
+
 import pytest
 
 from app.discovery import CourseStore, discover
@@ -162,7 +164,7 @@ def test_fingerprint_finds_details_from_embedded_widget(monkeypatch):
     assert verdict.booking_domain == "pinehills-golf-club.book.teeitup.golf"
 
 
-def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatch):
+def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatch, caplog):
     table = FakeTable()
     table.items["course#presidents-golf-course"] = {
         "pk": "course#presidents-golf-course",
@@ -201,6 +203,7 @@ def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatc
     geo_table = FakeTable()
     monkeypatch.setattr("app.geo.GeocodeStore", lambda name, table=None: GeocodeStore(name, table=geo_table))
 
+    caplog.set_level(logging.INFO)
     res = fingerprint_handler(event={"limit": 5})
     assert res["classified"] == 1
 
@@ -209,6 +212,18 @@ def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatc
     assert updated["facility_id"] == "17943"
     assert updated["x_be_alias"] == "presidents-golf-course"
     assert updated["booking_domain"] == "presidents-golf-course.book.teeitup.golf"
+
+    # The verdict and its evidence belong in the log, not just in the table.
+    verdicts = [
+        record.getMessage()
+        for record in caplog.records
+        if "Presidents Golf Course ->" in record.getMessage()
+    ]
+    assert len(verdicts) == 1
+    assert "Presidents Golf Course -> teeitup" in verdicts[0]
+    assert "presidents-golf-course.book.teeitup.golf" in verdicts[0]
+    assert "(facility 17943)" in verdicts[0]
+    assert "redirects to TeeItUp engine" in verdicts[0]
 
 
 # --- (b) Moving existing TeeItUp courses into DynamoDB -----------------------
@@ -382,4 +397,3 @@ def test_parallel_search_queries_multiple_providers_concurrently(monkeypatch):
     # Failing provider is caught and does not fail the search
     assert len(results) == 2
     assert {r.course_name for r in results} == {"Course 1", "Course 2"}
-

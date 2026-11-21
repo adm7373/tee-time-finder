@@ -271,6 +271,61 @@ def test_known_teeitup_engine_is_rechecked_not_trusted(monkeypatch):
     assert calls == ["https://near-cc.book.teeitup.golf/"]
 
 
+class LimitBeforeFilterTable:
+    """Scan the way DynamoDB does: Limit caps items read, the filter runs after."""
+
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+        self.calls: list[dict] = []
+
+    def scan(self, **kwargs):
+        self.calls.append(kwargs)
+        limit = kwargs.get("Limit") or len(self.rows)
+        start = kwargs.get("ExclusiveStartKey")
+        offset = 0
+        if start:
+            offset = (
+                next(i for i, row in enumerate(self.rows) if row["pk"] == start["pk"])
+                + 1
+            )
+        end = offset + limit
+        page = self.rows[offset:end]
+        result = {"Items": [row for row in page if row.get("provider") == "unknown"]}
+        if end < len(self.rows):
+            result["LastEvaluatedKey"] = {"pk": self.rows[end - 1]["pk"]}
+        return result
+
+
+def test_fingerprint_batch_fills_past_pages_that_match_nothing():
+    """A page of classified rows must not leave the batch short of its limit."""
+    from app.fingerprint_handler import _unfingerprinted
+
+    rows = [{"pk": f"course#done{i:03d}", "provider": "golfnow"} for i in range(120)]
+    rows += [{"pk": f"course#todo{i:03d}", "provider": "unknown"} for i in range(40)]
+    rows += [{"pk": f"course#more{i:03d}", "provider": "teeitup"} for i in range(40)]
+    table = LimitBeforeFilterTable(rows)
+
+    batch = _unfingerprinted(table, 5)
+
+    assert len(batch) == 5
+    assert all(row["provider"] == "unknown" for row in batch)
+    # One call per page of evaluated items, not one call per course still missing.
+    assert len(table.calls) == 2
+
+
+class EmptyResultTable:
+    """A scan whose pages match nothing, as when every row is classified."""
+
+    def scan(self, **kwargs):
+        return {"Items": []}
+
+
+def test_fingerprint_batch_is_empty_when_nothing_is_unclassified():
+    from app.fingerprint_handler import _unfingerprinted
+
+    assert _unfingerprinted(EmptyResultTable(), 5) == []
+
+
 def test_guesses_prefer_the_osm_website():
     guesses = fp.website_guesses(
         _course(website="https://real-site.com", display_name="Near CC, Quincy, MA")
@@ -425,6 +480,33 @@ def test_attempts_are_capped(monkeypatch):
     )
     assert result.probed == 0
     assert table.items["course#hopeless"]["discovery_attempts"] == 5
+
+
+def test_handler_logs_each_confirmed_booking(monkeypatch, caplog):
+    """A run's result should be readable in CloudWatch, course by course."""
+    import logging
+
+    import app.discovery as discovery
+    from app.config import Settings
+
+    result = discovery.DiscoveryResult(
+        run_id="run#near",
+        swept=True,
+        added=1,
+        tee_it_up=1,
+        details=["Near CC -> near-cc.book.teeitup.golf (facility 9999)"],
+    )
+    monkeypatch.setattr("app.config.get_settings", lambda: Settings(_env_file=None))
+    monkeypatch.setattr(discovery, "discover", lambda *a, **k: result)
+    caplog.set_level(logging.INFO)
+
+    discovery.handler({})
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert (
+        "discovery run#near: confirmed Near CC -> near-cc.book.teeitup.golf "
+        "(facility 9999)" in messages
+    )
 
 
 def test_backlog_order_reaches_past_the_nearest_ten(monkeypatch):

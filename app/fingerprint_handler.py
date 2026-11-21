@@ -22,8 +22,23 @@ logger = logging.getLogger(__name__)
 #: fetches, so this stays small; the schedule provides the repetition.
 DEFAULT_LIMIT = 5
 
+#: Items DynamoDB may evaluate in one scan page. This is deliberately not the
+#: batch size: ``Limit`` counts items read, before ``FilterExpression`` runs, so
+#: a page sized to the batch can come back with few or no matches. A fixed page
+#: also keeps the number of round-trips proportional to the table rather than to
+#: the number of courses still missing.
+SCAN_PAGE_SIZE = 100
+
 
 def _unfingerprinted(table, limit: int) -> list[dict]:
+    """Collect up to ``limit`` unclassified courses, paging until the batch is full.
+
+    ``Limit`` bounds the items a scan reads, before ``FilterExpression`` is
+    applied, so a page can contribute fewer matches than its size — sometimes
+    none. Paging therefore continues while items are left and the batch is not
+    full, and the page size stays fixed so the number of round-trips does not
+    grow as the batch fills.
+    """
     courses: list[dict] = []
     start_key = None
     while len(courses) < limit:
@@ -31,7 +46,7 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
             "FilterExpression": "#p = :u",
             "ExpressionAttributeNames": {"#p": "provider"},
             "ExpressionAttributeValues": {":u": "unknown"},
-            "Limit": limit - len(courses),
+            "Limit": SCAN_PAGE_SIZE,
         }
         if start_key:
             kwargs["ExclusiveStartKey"] = start_key
@@ -44,7 +59,7 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
         start_key = page.get("LastEvaluatedKey")
         if not start_key:
             break
-    return courses
+    return courses[:limit]
 
 
 def handler(event: dict | None = None, context=None) -> dict:
@@ -93,6 +108,19 @@ def handler(event: dict | None = None, context=None) -> dict:
             still_unknown += 1
         else:
             classified += 1
+        # A verdict line per course, with the evidence behind it: the summary
+        # count alone says nothing about which course changed or why.
+        verdict_line = f"{name} -> {verdict.provider}"
+        if verdict.booking_domain:
+            verdict_line += f" at {verdict.booking_domain}"
+        if verdict.facility_id:
+            verdict_line += f" (facility {verdict.facility_id})"
+        logger.info(
+            "fingerprint %s: %s | %s",
+            run_id,
+            verdict_line,
+            verdict.evidence or "no evidence",
+        )
         if not dry_run:
             store.put(course)
             if (
