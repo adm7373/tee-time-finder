@@ -243,6 +243,34 @@ def test_golfnow_booking_link_is_named(monkeypatch):
     assert "golfnow" in verdict.evidence
 
 
+def test_foreup_booking_link_yields_the_ids_the_adapter_needs():
+    ids = fp.foreup_ids(
+        "https://foreupsoftware.com/index.php/booking/19865/2748#/teetimes"
+    )
+    assert ids == {"foreup_course_id": "19865", "foreup_schedule_id": "2748"}
+
+
+def test_foreup_ids_ignore_links_that_are_not_booking_pages():
+    assert fp.foreup_ids("https://example.com/tee-times") == {}
+    assert fp.foreup_ids("") == {}
+
+
+def test_fingerprint_records_the_booking_link_it_found(monkeypatch):
+    site = (
+        '<a href="https://foreupsoftware.com/index.php/booking/19865/2748">'
+        "Book a tee time</a>"
+    )
+
+    monkeypatch.setattr(fp, "_fetch", lambda url: (url, site))
+    verdict = fp.fingerprint(_course(website="https://nearcc.com"))
+
+    assert verdict.provider == "foreup"
+    assert verdict.booking_link == (
+        "https://foreupsoftware.com/index.php/booking/19865/2748"
+    )
+    assert fp.foreup_ids(verdict.booking_link)["foreup_schedule_id"] == "2748"
+
+
 def test_dead_site_stays_unknown(monkeypatch):
     monkeypatch.setattr(fp, "_fetch", lambda url: (url, ""))
     verdict = fp.fingerprint(_course(website="https://nearcc.com"))

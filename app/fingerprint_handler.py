@@ -65,7 +65,7 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
 def handler(event: dict | None = None, context=None) -> dict:
     from .config import get_settings
     from .discovery import CourseStore
-    from .fingerprint import fingerprint
+    from .fingerprint import fingerprint, foreup_ids
 
     configure_logging()
     event = event or {}
@@ -104,6 +104,10 @@ def handler(event: dict | None = None, context=None) -> dict:
             course["facility_id"] = verdict.facility_id
         if verdict.x_be_alias:
             course["x_be_alias"] = verdict.x_be_alias
+        if verdict.provider == "foreup":
+            # The ids the adapter needs are in the booking link. Storing them
+            # on the row means from_row never has to fetch the page again.
+            course.update(foreup_ids(verdict.booking_link))
         if verdict.provider == "unknown":
             still_unknown += 1
         else:

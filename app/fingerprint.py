@@ -152,6 +152,39 @@ def _other_provider(url: str, body: str) -> str | None:
     return None
 
 
+def _other_provider_link(body: str, base: str, provider: str) -> str:
+    """The first anchor on a page that points at ``provider``, or empty."""
+    markers = dict(OTHER_PROVIDERS).get(provider, (provider,))
+    for link in _booking_links(body, base):
+        if any(marker in link.lower() for marker in markers):
+            return link
+    return ""
+
+
+#: foreup booking pages put both ids the API needs in the path:
+#: ``/index.php/booking/<course_id>/<schedule_id>``.
+FOREUP_BOOKING_RE = re.compile(
+    r"foreupsoftware\.com/index\.php/booking/(?P<course>\d+)/(?P<schedule>\d+)",
+    re.I,
+)
+
+
+def foreup_ids(link: str) -> dict[str, str]:
+    """The foreup ids a booking link carries, as course-row fields.
+
+    The fingerprint records the link it followed; the adapter needs the two ids
+    in it, and reading them from the row is cheaper than fetching the booking
+    page on every search. Empty when the link is not a foreup booking page.
+    """
+    match = FOREUP_BOOKING_RE.search(link or "")
+    if not match:
+        return {}
+    return {
+        "foreup_course_id": match.group("course"),
+        "foreup_schedule_id": match.group("schedule"),
+    }
+
+
 def _booking_links(body: str, base: str) -> list[str]:
     """Anchor targets on a course page that look like they lead to booking."""
     links: list[str] = []
@@ -200,6 +233,8 @@ def website_guesses(course: dict) -> list[str]:
 class Fingerprint:
     provider: str = "unknown"  # teeitup | <other name> | other | unknown
     booking_domain: str = ""
+    #: The booking URL itself when one was found; engines can carry ids in it.
+    booking_link: str = ""
     facility_id: str = ""
     x_be_alias: str = ""
     evidence: str = ""
@@ -284,6 +319,7 @@ def fingerprint(course: dict) -> Fingerprint:
             result.provider = other
             result.booking_domain = _host(final)
             result.evidence = f"course site {start} points at {other}"
+            result.booking_link = _other_provider_link(body, final, other)
             return result
 
         # Follow the site's own booking links one hop: that is usually where
@@ -313,6 +349,7 @@ def fingerprint(course: dict) -> Fingerprint:
                 result.provider = other
                 result.booking_domain = _host(link_final)
                 result.evidence = f"booking link {link} leads to {other}"
+                result.booking_link = link
                 return result
 
         # A couple of conventional booking paths, for sites whose booking link

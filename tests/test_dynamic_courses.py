@@ -225,6 +225,52 @@ def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatc
     assert "redirects to TeeItUp engine" in verdicts[0]
 
 
+def test_fingerprint_handler_stores_foreup_ids_from_the_booking_link(monkeypatch):
+    """The row carries what the adapter's from_row needs, so it fetches nothing."""
+    table = FakeTable()
+    table.items["course#robert-t-lynch-municipal-golf-course"] = {
+        "pk": "course#robert-t-lynch-municipal-golf-course",
+        "name": "Robert T. Lynch Municipal Golf Course",
+        "provider": "unknown",
+        "website": "https://brooklinegolf.com",
+    }
+    course_store = CourseStore("courses", table=table)
+
+    monkeypatch.setattr(
+        fp,
+        "_fetch",
+        lambda url: (
+            url,
+            '<a href="https://foreupsoftware.com/index.php/booking/19865/2748'
+            '#/teetimes">Book a tee time</a>',
+        ),
+    )
+
+    from app.config import Settings
+
+    monkeypatch.setattr(
+        "app.config.get_settings",
+        lambda: Settings(
+            _env_file=None,
+            courses_table_name="courses",
+            geocode_table_name="geocode",
+        ),
+    )
+    monkeypatch.setattr("app.discovery.CourseStore", lambda name: course_store)
+    monkeypatch.setattr(
+        "app.geo.GeocodeStore",
+        lambda name, table=None: GeocodeStore(name, table=FakeTable()),
+    )
+
+    res = fingerprint_handler(event={"limit": 5})
+    assert res["classified"] == 1
+
+    updated = table.items["course#robert-t-lynch-municipal-golf-course"]
+    assert updated["provider"] == "foreup"
+    assert updated["foreup_course_id"] == "19865"
+    assert updated["foreup_schedule_id"] == "2748"
+
+
 # --- Search functionality connected to DynamoDB -----------------------------
 
 

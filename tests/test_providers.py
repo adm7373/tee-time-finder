@@ -13,6 +13,7 @@ from app.models import SearchRequest
 from app.providers import (
     ENGINE_PROVIDERS,
     BookingEngineProvider,
+    ForeUpProvider,
     TeeItUpProvider,
     get_providers_from_store,
     provider_coverage,
@@ -337,3 +338,29 @@ def test_search_all_propagates_a_catalog_failure(monkeypatch):
             store=FakeGeo(),
             course_store=object(),
         )
+
+
+def test_foreup_from_row_reads_the_ids_the_fingerprint_stored():
+    """A complete row is enough: from_row must not need the booking page."""
+    provider = ForeUpProvider.from_row(
+        {
+            "pk": "course#robert-t-lynch-municipal-golf-course",
+            "name": "Robert T. Lynch Municipal Golf Course",
+            "display_name": "Robert T. Lynch Municipal, Brookline, MA",
+            "provider": "foreup",
+            "foreup_course_id": "19865",
+            "foreup_schedule_id": "2748",
+            "lat": "42.3179",
+            "lon": "-71.1326",
+        }
+    )
+
+    assert provider.course_id == "19865"
+    assert provider.schedule_id == "2748"
+    assert provider.course_key() == "19865/2748"
+    assert provider.coordinates.lat == 42.3179
+    assert provider.booking_url().endswith("/booking/19865/2748")
+
+    url = provider.availability_url(SearchRequest(date=date(2026, 5, 14), players=2))
+    assert "date=05-14-2026" in url
+    assert "schedule_id=2748" in url

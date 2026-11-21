@@ -100,7 +100,7 @@ page load to every search.
 - Header `x-be-alias: <alias>`; `TeeItUpProvider` paces requests two seconds apart.
 - Slots carry UTC instants and `rates[].allowedPlayers`.
 
-### foreup — not implemented
+### foreup — from_row done, parse_slots pending
 
 - Discovered from a course site's booking link, e.g. Robert T. Lynch Municipal
   Golf Course: `booking_domain: foreupsoftware.com`, evidence
@@ -110,6 +110,12 @@ page load to every search.
 - A request of the form
   `?time=all&date=11-27-2026&holes=all&players=2&schedule_id=2748&booking_class=default`
   answered `200` with a JSON array — `[]` for that course in late November.
-- Unconfirmed: whether `booking_class` or `api_key` are required, and the exact
-  slot shape. Verify against a course with live inventory before writing
-  `parse_slots`. The row does not carry the two ids yet, so step 4 is required.
+- The fingerprint worker records the booking link it followed
+  (`Fingerprint.booking_link`) and, for foreup, stores `foreup_course_id` and
+  `foreup_schedule_id` on the row (`foreup_ids`). `ForeUpProvider.from_row`
+  therefore reads the row and never fetches the booking page.
+- Still unverified: whether `booking_class` or `api_key` are required, and the
+  slot shape. `ForeUpProvider.parse_slots` raises until that is settled, which
+  is why the class is not yet in `ENGINE_PROVIDERS`.
+- Rows classified before this landed predate the ids and need them backfilled
+  (or `provider` reset to `unknown` and the fingerprint worker re-run).

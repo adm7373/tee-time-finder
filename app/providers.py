@@ -70,6 +70,21 @@ def _tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
 
+def _row_coordinates(row: dict) -> Coordinates | None:
+    """Coordinates discovery saved on a row, or None when it did not."""
+    if not (row.get("lat") and row.get("lon")):
+        return None
+    try:
+        return Coordinates(
+            lat=float(row["lat"]),
+            lon=float(row["lon"]),
+            display_name=row.get("display_name", ""),
+            source="dynamodb",
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 class BookingEngineProvider(SearchProvider):
     """Base for a booking engine that many courses share.
 
@@ -251,17 +266,7 @@ class TeeItUpProvider(BookingEngineProvider):
         if not facility_id or not alias:
             return None
 
-        coordinates = None
-        if row.get("lat") and row.get("lon"):
-            try:
-                coordinates = Coordinates(
-                    lat=float(row["lat"]),
-                    lon=float(row["lon"]),
-                    display_name=row.get("display_name", ""),
-                    source="dynamodb",
-                )
-            except (TypeError, ValueError):
-                pass
+        coordinates = _row_coordinates(row)
 
         return cls(
             facility_id=str(facility_id),
@@ -339,6 +344,94 @@ class TeeItUpProvider(BookingEngineProvider):
                 )
 
         return results
+
+
+class ForeUpProvider(BookingEngineProvider):
+    """foreup for booking: a course is a course id plus a schedule id.
+
+    Both ids sit in the booking link the fingerprint worker records
+    (``/index.php/booking/<course_id>/<schedule_id>``), so :meth:`from_row`
+    reads them off the row and never touches the network.
+
+    ``parse_slots`` is not written yet: the availability payload has not been
+    seen for a course with live inventory, so this class stays out of
+    :data:`ENGINE_PROVIDERS` until it can be. ``docs/provider-adapters.md``
+    records what is known about the endpoint.
+    """
+
+    label = "foreup"
+
+    #: API endpoint behind the booking page
+    api_url: str = "https://foreupsoftware.com/index.php/api/booking/times"
+
+    #: Course and schedule id from the course's booking link
+    course_id: str = ""
+    schedule_id: str = ""
+
+    def __init__(
+        self,
+        course_id: str | None = None,
+        schedule_id: str | None = None,
+        display_name: str | None = None,
+        coordinates: Coordinates | None = None,
+        **kwargs,
+    ):
+        """Initialize ForeUpProvider from the two ids its API needs."""
+        if course_id is not None:
+            self.course_id = course_id
+        if schedule_id is not None:
+            self.schedule_id = schedule_id
+        super().__init__(
+            name=f"foreup-{self.course_id}" if self.course_id else self.label,
+            display_name=display_name or "",
+            coordinates=coordinates,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_row(cls, row: dict) -> "ForeUpProvider | None":
+        """Build a provider from the ids the fingerprint stored on the row."""
+        course_id = str(row.get("foreup_course_id") or "")
+        schedule_id = str(row.get("foreup_schedule_id") or "")
+        if not (course_id and schedule_id):
+            return None
+        return cls(
+            course_id=course_id,
+            schedule_id=schedule_id,
+            display_name=row.get("display_name") or row.get("name") or "foreup",
+            coordinates=_row_coordinates(row),
+        )
+
+    def course_key(self) -> str:
+        """The pair of ids identifies the course; the label is shared."""
+        return f"{self.course_id}/{self.schedule_id}"
+
+    def booking_url(self) -> str | None:
+        if not (self.course_id and self.schedule_id):
+            return None
+        return (
+            "https://foreupsoftware.com/index.php/booking/"
+            f"{self.course_id}/{self.schedule_id}"
+        )
+
+    def availability_url(self, request: SearchRequest) -> str:
+        query = urlencode(
+            {
+                "time": "all",
+                "date": request.date.strftime("%m-%d-%Y"),
+                "holes": "all",
+                "players": request.players,
+                "schedule_id": self.schedule_id,
+                "booking_class": "default",
+            }
+        )
+        return f"{self.api_url}?{query}"
+
+    def parse_slots(self, payload: object, request: SearchRequest) -> list[dict]:
+        raise NotImplementedError(
+            "foreup availability has not been seen for a course with live "
+            "inventory; see docs/provider-adapters.md"
+        )
 
 
 #: Row label -> engine adapter. Discovery and the fingerprint worker write these
