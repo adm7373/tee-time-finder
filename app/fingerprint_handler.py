@@ -1,9 +1,10 @@
 """Fingerprint Lambda: classify how unfingerprinted courses take bookings.
 
 Reads course rows from the courses table whose provider is still ``unknown``,
-fingerprints a bounded batch of them, and writes the verdicts back. The bound
-keeps a scheduled run inside Lambda's time limit; the schedule re-runs often
-enough that the backlog drains over a few nights.
+fingerprints a bounded batch of the least-recently-checked ones, and writes the
+verdicts back. The bound keeps a scheduled run inside Lambda's time limit, and
+checking oldest first means a row nobody can classify does not starve the rest
+of the backlog.
 
 The event may carry ``limit`` (default 5) and ``dry_run`` (classify without
 writing). The response counts what happened: classified, still unknown, and any
@@ -30,18 +31,27 @@ DEFAULT_LIMIT = 5
 SCAN_PAGE_SIZE = 100
 
 
-def _unfingerprinted(table, limit: int) -> list[dict]:
-    """Collect up to ``limit`` unclassified courses, paging until the batch is full.
+def _last_checked(row: dict) -> str:
+    """When a course row was last looked at; rows never checked sort first."""
+    return str(row.get("last_checked") or "")
 
-    ``Limit`` bounds the items a scan reads, before ``FilterExpression`` is
-    applied, so a page can contribute fewer matches than its size — sometimes
-    none. Paging therefore continues while items are left and the batch is not
-    full, and the page size stays fixed so the number of round-trips does not
-    grow as the batch fills.
+
+def _unfingerprinted(table, limit: int) -> list[dict]:
+    """The unclassified courses checked longest ago, up to ``limit``.
+
+    Selection is by ``last_checked``, not table order. Every processed row is
+    stamped with the run's timestamp, so a course whose site never answers
+    sorts behind everything that has not had a turn yet. Taking rows in table
+    order instead let one permanently broken row at the head of the table be
+    re-probed on every run, and the backlog behind it never advanced.
+
+    That means reading every unclassified row rather than stopping as soon as
+    the batch is full; ``Limit`` bounds items read before ``FilterExpression``
+    runs, so pages are fixed-size and paging continues to the end of the table.
     """
     courses: list[dict] = []
     start_key = None
-    while len(courses) < limit:
+    while True:
         kwargs = {
             "FilterExpression": "#p = :u",
             "ExpressionAttributeNames": {"#p": "provider"},
@@ -59,6 +69,7 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
         start_key = page.get("LastEvaluatedKey")
         if not start_key:
             break
+    courses.sort(key=_last_checked)
     return courses[:limit]
 
 

@@ -378,6 +378,39 @@ class EmptyResultTable:
         return {"Items": []}
 
 
+def test_a_permanently_broken_row_cannot_block_the_queue():
+    """The batch is the oldest-checked rows, not whatever sits first in the table."""
+    from app.fingerprint_handler import _unfingerprinted
+
+    table = FakeTable()
+    table.items["course#broken"] = {
+        "pk": "course#broken",
+        "provider": "unknown",
+        # Re-probed by the last run and still unknown: it must go to the back.
+        "last_checked": "2026-11-21T02:32:00+00:00",
+    }
+    table.items["course#recent"] = {
+        "pk": "course#recent",
+        "provider": "unknown",
+        "last_checked": "2026-11-01T00:00:00+00:00",
+    }
+    table.items["course#stale"] = {
+        "pk": "course#stale",
+        "provider": "unknown",
+        "last_checked": "2026-09-01T00:00:00+00:00",
+    }
+    table.items["course#never"] = {"pk": "course#never", "provider": "unknown"}
+
+    batch = _unfingerprinted(table, 3)
+
+    assert [row["pk"] for row in batch] == [
+        "course#never",
+        "course#stale",
+        "course#recent",
+    ]
+    assert "course#broken" not in {row["pk"] for row in batch}
+
+
 def test_fingerprint_batch_is_empty_when_nothing_is_unclassified():
     from app.fingerprint_handler import _unfingerprinted
 
