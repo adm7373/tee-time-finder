@@ -89,8 +89,8 @@ page load to every search.
   for the engine. Never automate a login or store a session cookie.
 - Never invent a facility id, alias, course id or schedule id: take it from the
   row or from the booking page.
-- The static subclasses (`NorwoodCCProvider` and friends) are historical. Their
-  rows already exist in the table, so they are no longer how a course is added.
+- There are no per-course classes: every course is a row, and its label picks
+  the adapter that builds it.
 
 ## Known engines
 

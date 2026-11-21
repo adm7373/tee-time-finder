@@ -12,7 +12,11 @@ import pytest
 
 from app import providers as providers_module
 from app.models import SearchRequest
-from app.providers import NorwoodCCProvider
+from app.providers import TeeItUpProvider
+
+
+def _provider():
+    return TeeItUpProvider(facility_id="5720", x_be_alias="norwood-country-club")
 
 
 def test_tls_context_verifies_certificates():
@@ -41,7 +45,7 @@ def test_failed_request_does_not_retry_without_verification(monkeypatch):
 
     monkeypatch.setattr(providers_module, "urlopen", fake_urlopen)
 
-    provider = NorwoodCCProvider()
+    provider = _provider()
     assert provider._fetch_json("https://example.test/api") is None
 
     assert len(calls) == 1, "request should not be retried"
@@ -51,11 +55,9 @@ def test_failed_request_does_not_retry_without_verification(monkeypatch):
 
 
 def test_availability_returns_nothing_when_fetch_fails(monkeypatch):
-    monkeypatch.setattr(NorwoodCCProvider, "_fetch_json", lambda self, url: None)
+    monkeypatch.setattr(TeeItUpProvider, "_fetch_json", lambda self, url: None)
     assert (
-        NorwoodCCProvider().fetch_availability(
-            SearchRequest(date=date(2026, 11, 10), players=2)
-        )
+        _provider().fetch_availability(SearchRequest(date=date(2026, 11, 10), players=2))
         == []
     )
 

@@ -404,16 +404,19 @@ def discover(
     now: datetime.datetime | None = None,
 ) -> DiscoveryResult:
     """Run one discovery pass: sweep if due, then work the backlog."""
-    from .providers import get_search_providers
-
     now = now or datetime.datetime.now(datetime.timezone.utc)
     result = DiscoveryResult(run_id=run_id or now.isoformat())
     store = store or CourseStore(None)
     geocode_store = geocode_store or GeocodeStore(None)
     geocoder = geocoder or Geocoder("tee-time-finder/0.1 (personal tool)")
     if configured_facility_ids is None:
+        # Rows are the record of what is configured: a course already booked
+        # through TeeItUp needs no probe, whatever else the row says.
         configured_facility_ids = {
-            provider.facility_id for provider in get_search_providers()
+            str(row["facility_id"])
+            for row in store.scan()
+            if row.get("facility_id")
+            and str(row.get("provider", "")).startswith("teeitup")
         }
 
     last_swept = (store.meta("last_sweep") or {}).get("value")

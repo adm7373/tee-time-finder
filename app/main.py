@@ -91,10 +91,9 @@ def run_step(
 
     Admin-only: membership of the Cognito ``admins`` group is the permission.
     The work runs in the worker Lambda under its own ten-minute timeout, so a
-    slow sweep never holds this request open. Synchronous steps (like 'seed')
-    execute directly against the stores.
+    slow sweep never holds this request open.
     """
-    return trigger(step, course_store=_course_store(), geocode_store=_geocode_store())
+    return trigger(step)
 
 
 @app.get("/admin/courses")

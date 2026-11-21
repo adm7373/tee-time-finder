@@ -60,7 +60,6 @@ def test_admin_page_hides_the_section_from_non_admins():
     assert {step["id"] for step in body["steps"]} == {
         "discover",
         "fingerprint",
-        "seed",
     }
 
 
@@ -224,19 +223,3 @@ def test_delete_course_removes_from_store(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["deleted"] is True
     assert "course#presidents" not in store._items
-
-
-def test_seed_step_populates_stores(client, monkeypatch):
-    store = _InMemoryCourseStore()
-    monkeypatch.setattr("app.main._course_store", lambda: store)
-    monkeypatch.setattr("app.main._geocode_store", lambda: None)
-
-    response = client.post("/admin/seed")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["step"] == "seed"
-    assert data["started"] is True
-    assert data["payload"]["count"] == 18
-    # All 18 courses are seeded into the store
-    assert len([k for k in store._items if k.startswith("course#")]) == 18
-

@@ -13,7 +13,6 @@ from app.models import SearchRequest
 from app.providers import (
     ENGINE_PROVIDERS,
     BookingEngineProvider,
-    NorwoodCCProvider,
     TeeItUpProvider,
     get_providers_from_store,
     provider_coverage,
@@ -68,7 +67,11 @@ PAYLOAD = [
 
 @pytest.fixture
 def provider(monkeypatch):
-    p = NorwoodCCProvider()
+    p = TeeItUpProvider(
+        facility_id="5720",
+        x_be_alias="norwood-country-club",
+        display_name="Norwood Country Club",
+    )
     monkeypatch.setattr(p, "_fetch_json", lambda url: PAYLOAD)
     return p
 

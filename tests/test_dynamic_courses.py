@@ -1,4 +1,4 @@
-"""Tests for dynamic TeeItUp course handling, DynamoDB seeding, and search integration."""
+"""Tests for dynamic TeeItUp course handling, DynamoDB rows, and search integration."""
 
 from datetime import date, time
 import logging
@@ -15,7 +15,6 @@ from app.providers import (
     get_providers_from_store,
     search_all,
 )
-from app.seed_data import EXISTING_COURSES, seed_courses
 from app.teeitup_probe import confirm_course
 
 
@@ -226,41 +225,6 @@ def test_fingerprint_handler_updates_dynamodb_with_alias_and_facility(monkeypatc
     assert "redirects to TeeItUp engine" in verdicts[0]
 
 
-# --- (b) Moving existing TeeItUp courses into DynamoDB -----------------------
-
-
-def test_existing_courses_count_and_fields():
-    assert len(EXISTING_COURSES) == 18
-    for course in EXISTING_COURSES:
-        assert course["facility_id"]
-        assert course["x_be_alias"]
-        assert course["name"]
-        assert "lat" in course and "lon" in course
-
-
-def test_seed_courses_populates_both_stores():
-    course_table = FakeTable()
-    course_store = CourseStore("courses", table=course_table)
-    geo_table = FakeTable()
-    geocode_store = GeocodeStore("geocode", table=geo_table)
-
-    seeded = seed_courses(course_store, geocode_store)
-    assert len(seeded) == 18
-    assert len(course_table.items) == 18
-    assert len(geo_table.items) == 18
-
-    norwood = course_table.items["course#norwood-country-club"]
-    assert norwood["facility_id"] == "5720"
-    assert norwood["x_be_alias"] == "norwood-country-club"
-    assert norwood["booking_domain"] == "norwood-country-club.book.teeitup.golf"
-    assert norwood["provider"] == "teeitup"
-    assert float(norwood["distance_from_zip"]) == 9.6
-
-    geo_norwood = geocode_store.course("5720")
-    assert geo_norwood is not None
-    assert geo_norwood.lat == pytest.approx(42.1986317)
-
-
 # --- Search functionality connected to DynamoDB -----------------------------
 
 
@@ -300,14 +264,26 @@ def test_dynamic_teeitup_provider_search(monkeypatch):
 def test_get_providers_from_store_creates_configured_providers():
     table = FakeTable()
     course_store = CourseStore("courses", table=table)
-    seed_courses(course_store)
+    for slug, facility_id in [
+        ("norwood-country-club", "5720"),
+        ("presidents-golf-course", "17943"),
+        ("pinehills-golf-club", "4981"),
+    ]:
+        table.items[f"course#{slug}"] = {
+            "pk": f"course#{slug}",
+            "name": slug.replace("-", " ").title(),
+            "provider": "teeitup",
+            "facility_id": facility_id,
+            "x_be_alias": slug,
+        }
 
     providers = get_providers_from_store(course_store)
-    assert len(providers) == 18
-    aliases = {p.x_be_alias for p in providers}
-    assert "norwood-country-club" in aliases
-    assert "presidents-golf-course" in aliases
-    assert "pinehills-golf-club" in aliases
+    assert len(providers) == 3
+    assert {p.x_be_alias for p in providers} == {
+        "norwood-country-club",
+        "presidents-golf-course",
+        "pinehills-golf-club",
+    }
 
 
 def test_search_all_uses_course_store(monkeypatch):

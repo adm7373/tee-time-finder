@@ -669,9 +669,6 @@
             const data = await resp.json();
             if (resp.ok) {
               this.adminAlert = `Triggered ${stepId} successfully at ${new Date().toLocaleTimeString()} (status ${data.status_code || 200}).`;
-              if (stepId === 'seed') {
-                await this.loadAdminCourses();
-              }
             } else {
               this.adminAlert = 'Failed to trigger step: ' + (data.detail || resp.status);
             }

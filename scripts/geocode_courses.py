@@ -20,8 +20,8 @@ import argparse
 import sys
 
 from app.config import get_settings
+from app.discovery import CourseStore
 from app.geo import Coordinates, GeocodeStore, Geocoder
-from app.providers import get_search_providers
 
 #: Courses OpenStreetMap does not have, placed by street address instead. Both
 #: are in Plymouth, MA, 1.6 miles apart; neither address is tagged as a golf
@@ -96,10 +96,23 @@ def main(argv: list[str] | None = None) -> int:
     store = GeocodeStore(args.table)
     geocoder = Geocoder(settings.nominatim_user_agent)
 
+    # Courses live in the table, so that is what gets placed; a provider no
+    # longer carries a course's name or its ids.
+    rows = CourseStore(settings.courses_table_name).scan()
+    if not rows:
+        print(
+            "No courses to geocode: set COURSES_TABLE_NAME and make sure the "
+            "table is filled.",
+            file=sys.stderr,
+        )
+        return 1
+
     missing: list[str] = []
-    for provider in get_search_providers():
-        facility_id = provider.facility_id
-        label = provider.display_name or provider.name
+    for row in rows:
+        facility_id = str(row.get("facility_id") or "")
+        if not facility_id:
+            continue
+        label = row.get("display_name") or row.get("name") or facility_id
 
         coords = overrides.get(facility_id) or MANUAL_COORDINATES.get(facility_id)
         if coords is None:

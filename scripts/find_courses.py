@@ -62,10 +62,16 @@ def main(argv=None) -> int:
     # Every facility the app already searches, plus any --aliases hints: a
     # course pointing at one of these is reported as already configured rather
     # than as a discovery. Without this the report claimed all 35 were new.
-    from app.providers import get_search_providers
+    from app.config import get_settings
+    from app.discovery import CourseStore
     from app.teeitup_probe import facility_id_for
 
-    configured = {p.facility_id for p in get_search_providers()}
+    # Whatever the courses table already holds is configured, whatever engine
+    # it uses; without this the report calls every known course new.
+    existing = CourseStore(get_settings().courses_table_name)
+    configured = {
+        str(row["facility_id"]) for row in existing.scan() if row.get("facility_id")
+    }
     configured.update(
         facility_id
         for alias in known_aliases.values()

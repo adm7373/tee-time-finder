@@ -194,9 +194,8 @@ class BookingEngineProvider(SearchProvider):
 class TeeItUpProvider(BookingEngineProvider):
     """TeeItUp for booking: a course is a facility id plus a site alias.
 
-    The ``NorwoodCCProvider``-style subclasses still work, but they are no
-    longer how courses are added: discovery records the same fields on the
-    course row and :meth:`from_row` builds the provider from it.
+    Courses are rows: discovery records the facility id and alias on the course
+    row and :meth:`from_row` builds the provider from it.
     """
 
     label = "teeitup"
@@ -342,150 +341,6 @@ class TeeItUpProvider(BookingEngineProvider):
         return results
 
 
-class NorwoodCCProvider(TeeItUpProvider):
-    """Provider for Norwood Country Club (Norwood, MA)."""
-
-    facility_id = "5720"
-    display_name = "Norwood Country Club"
-    x_be_alias = "norwood-country-club"
-
-
-class SquirrelRunProvider(TeeItUpProvider):
-    """Provider for Squirrel Run Golf Course."""
-
-    facility_id = "4328"
-    display_name = "Squirrel Run Golf Course"
-    x_be_alias = "squirrel-run-golf-club"
-
-
-class VillageLinksProvider(TeeItUpProvider):
-    """Provider for Village Links"""
-
-    facility_id = "4329"
-    display_name = "Village Links Golf Club"
-    x_be_alias = "village-links-golf-club"
-
-
-class PonkapoagCCProvider(TeeItUpProvider):
-    """Provider for Ponkapoag Country Club."""
-
-    facility_id = "17927"
-    display_name = "Ponkapoag Golf Course"
-    x_be_alias = "ponkapoag-golf-course"
-
-
-class BraintreeCountryClubProvider(TeeItUpProvider):
-    """Provider for Braintree Country Club."""
-
-    facility_id = "16026"
-    display_name = "Braintree Municipal Golf Course"
-    x_be_alias = "braintree-municipal-golf-course"
-
-
-class PresidentsGCProvider(TeeItUpProvider):
-    """Provider for Presidents Golf Course (Quincy, MA)."""
-
-    facility_id = "17943"
-    display_name = "Presidents Golf Course"
-    x_be_alias = "presidents-golf-course"
-
-
-class NewtonCommonwealthProvider(TeeItUpProvider):
-    """Provider for Newton Commonwealth Golf Course (Newton, MA)."""
-
-    facility_id = "5719"
-    display_name = "Newton Commonwealth Golf Course"
-    x_be_alias = "newton-commonwealth-golf-course"
-
-
-class DevineProvider(TeeItUpProvider):
-    """Provider for William J. Devine Golf Course (Franklin Park, Boston, MA)."""
-
-    facility_id = "17032"
-    display_name = "William J. Devine Golf Course"
-    x_be_alias = "devine-golf-course"
-
-
-class CedarHillProvider(TeeItUpProvider):
-    """Provider for Cedar Hill Golf Course (Stoughton, MA)."""
-
-    facility_id = "12116"
-    display_name = "Cedar Hill Golf Course"
-    x_be_alias = "cedarhill-golf"
-
-
-class RocklandGCProvider(TeeItUpProvider):
-    """Provider for Rockland Golf Course (Rockland, MA)."""
-
-    facility_id = "11063"
-    display_name = "Rockland Golf Course"
-    x_be_alias = "rockland-golf-course"
-
-
-class GreenHarborProvider(TeeItUpProvider):
-    """Provider for Green Harbor Golf Club (Marshfield, MA)."""
-
-    facility_id = "9146"
-    display_name = "Green Harbor Golf Club"
-    x_be_alias = "green-harbor-golf-club"
-
-
-class WentworthHillsProvider(TeeItUpProvider):
-    """Provider for Wentworth Hills Country Club (Plainville, MA)."""
-
-    facility_id = "4557"
-    display_name = "Wentworth Hills Country Club"
-    x_be_alias = "wentworth-hills-country-club"
-
-
-class LakevilleProvider(TeeItUpProvider):
-    """Provider for Lakeville Country Club (Lakeville, MA)."""
-
-    facility_id = "6696"
-    display_name = "Lakeville Country Club"
-    x_be_alias = "lakeville-country-club"
-
-
-class StoneELeaProvider(TeeItUpProvider):
-    """Provider for Stone-E-Lea Golf Course (Attleboro, MA)."""
-
-    facility_id = "15487"
-    display_name = "Stone-E-Lea Golf Course"
-    x_be_alias = "stone-e-lea"
-
-
-class PlymouthCCProvider(TeeItUpProvider):
-    """Provider for Plymouth Country Club (Plymouth, MA)."""
-
-    facility_id = "10968"
-    display_name = "Plymouth Country Club"
-    x_be_alias = "plymouth-country-club"
-
-
-class CrosswindsProvider(TeeItUpProvider):
-    """Provider for Crosswinds Golf Club (Plymouth, MA)."""
-
-    facility_id = "4839"
-    display_name = "Crosswinds Golf Club"
-    x_be_alias = "crosswinds-golf-club"
-
-
-class WaverlyOaksProvider(TeeItUpProvider):
-    """Provider for Waverly Oaks Golf Club (Plymouth, MA)."""
-
-    facility_id = "6345"
-    display_name = "Waverly Oaks Golf Club"
-    x_be_alias = "waverly-oaks-golf-club"
-
-
-class PinehillsProvider(TeeItUpProvider):
-    """Provider for Pinehills Golf Club (Plymouth, MA)."""
-
-    facility_id = "4981"
-    display_name = "Pinehills Golf Club"
-    x_be_alias = "pinehills-golf-club"
-
-
 #: Row label -> engine adapter. Discovery and the fingerprint worker write these
 #: labels on course rows; a row whose label is not here is a course the app
 #: knows about but cannot search yet.
@@ -557,34 +412,15 @@ def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
 def get_search_providers(
     course_store: "CourseStore | None" = None,
 ) -> list[SearchProvider]:
-    if course_store is not None:
-        dynamic = get_providers_from_store(course_store)
-        if dynamic:
-            return dynamic
+    """Search catalog built from the courses table.
 
-    # Ordered by distance from the default ZIP (02169), nearest first, so a
-    # small radius stops issuing API calls as early as possible.
-    providers: list[SearchProvider] = [
-        PresidentsGCProvider(),  # 2.5 mi
-        BraintreeCountryClubProvider(),  # 3.7 mi
-        DevineProvider(),  # 6.2 mi
-        PonkapoagCCProvider(),  # 6.9 mi
-        RocklandGCProvider(),  # 9.3 mi
-        NorwoodCCProvider(),  # 9.6 mi
-        CedarHillProvider(),  # 10.3 mi
-        NewtonCommonwealthProvider(),  # 10.9 mi
-        GreenHarborProvider(),  # 19.6 mi
-        WentworthHillsProvider(),  # 24.9 mi
-        SquirrelRunProvider(),  # 26.1 mi
-        LakevilleProvider(),  # 26.4 mi
-        VillageLinksProvider(),  # 27.0 mi
-        StoneELeaProvider(),  # 28.2 mi
-        PlymouthCCProvider(),  # 29.7 mi
-        CrosswindsProvider(),  # 31.1 mi
-        WaverlyOaksProvider(),  # 31.6 mi
-        PinehillsProvider(),  # 32.5 mi
-    ]
-    return providers
+    Every course, canonical ones included, is a row: there is no built-in list
+    to fall back on, so no store (or an empty one) means nothing to search. A
+    hidden fallback would keep answering with courses nothing maintains.
+    """
+    if course_store is None:
+        return []
+    return get_providers_from_store(course_store)
 
 
 def search_all(
@@ -597,7 +433,7 @@ def search_all(
 
     The caller's ZIP is resolved through ``store`` (a cached lookup, geocoding
     on a miss). Courses without known coordinates are still searched, so a
-    missing seed row hides the distance rather than the course.
+    row without coordinates hides the distance rather than the course.
     """
     store = store or GeocodeStore(None)
     origin = store.zip(request.zip_code, geocoder)
@@ -606,8 +442,7 @@ def search_all(
     seen: set[tuple[str, date, time]] = set()
     # No fallback here. A catalog that cannot be built -- including an adapter
     # raising on a row -- is a bug to see and fix; swallowing it would answer
-    # from the static list and make every discovered course disappear with no
-    # signal at all.
+    # from an empty catalog and hide every discovered course with no signal.
     candidate_providers = get_search_providers(course_store)
 
     eligible_providers: list[tuple[SearchProvider, float]] = []
