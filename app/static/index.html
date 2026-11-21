@@ -393,6 +393,7 @@
               <h3 class="text-sm font-bold text-stone-900">Course Inventory</h3>
               <p class="text-xs text-stone-500 mt-0.5">
                 Showing <span class="font-semibold" x-text="filteredCourses().length"></span> of <span class="font-semibold" x-text="adminCourses.length"></span> registered courses
+                <span class="text-stone-400" x-text="' · ' + (adminMetrics.searchable || 0) + ' searchable'"></span>
               </p>
             </div>
 
@@ -423,6 +424,7 @@
                 <tr>
                   <th class="py-3 px-4">Course</th>
                   <th class="py-3 px-3">Provider</th>
+                  <th class="py-3 px-3">Searchable</th>
                   <th class="py-3 px-3">Facility ID / Alias</th>
                   <th class="py-3 px-3">Distance</th>
                   <th class="py-3 px-3">Coordinates</th>
@@ -446,6 +448,20 @@
                         class="px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block"
                         x-text="course.provider || 'unknown'"
                       ></span>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span
+                        :class="course.searchable
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-stone-100 text-stone-600 border-stone-300'"
+                        class="px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block"
+                        x-text="course.searchable ? 'Searchable' : 'Not searchable'"
+                      ></span>
+                      <div
+                        class="text-[10px] text-stone-400 mt-0.5 max-w-[150px] truncate"
+                        :title="course.searchable_reason || ''"
+                        x-text="course.searchable ? '' : (course.searchable_reason || '')"
+                      ></div>
                     </td>
                     <td class="py-3 px-3">
                       <div class="font-mono text-stone-800" x-text="course.facility_id || '—'"></div>
@@ -472,7 +488,7 @@
                 </template>
                 <template x-if="filteredCourses().length === 0">
                   <tr>
-                    <td colspan="6" class="py-8 text-center text-stone-400 text-xs">
+                    <td colspan="7" class="py-8 text-center text-stone-400 text-xs">
                       No courses match your filter.
                     </td>
                   </tr>
@@ -500,7 +516,7 @@
         runningStep: null,
         coursesLoading: false,
         adminCourses: [],
-        adminMetrics: { total: 0, teeitup: 0, other: 0, unknown: 0, last_sweep: null },
+        adminMetrics: { total: 0, teeitup: 0, other: 0, unknown: 0, searchable: 0, last_sweep: null },
         courseSearch: '',
         courseProviderFilter: 'all',
         deletingSlug: null,
@@ -568,7 +584,7 @@
           this.activeTab = 'search';
           this.adminSteps = [];
           this.adminCourses = [];
-          this.adminMetrics = { total: 0, teeitup: 0, other: 0, unknown: 0, last_sweep: null };
+          this.adminMetrics = { total: 0, teeitup: 0, other: 0, unknown: 0, searchable: 0, last_sweep: null };
           this.results = [];
           this.hasSearched = false;
           sessionStorage.removeItem('access_token');

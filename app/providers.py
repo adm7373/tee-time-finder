@@ -702,6 +702,19 @@ def provider_coverage(rows: list[dict]) -> dict[str, int]:
     return missing
 
 
+def provider_for_row(row: dict) -> BookingEngineProvider | None:
+    """The engine instance a course row builds, or None when search skips it.
+
+    Shared with the admin page so "searchable" there means exactly "the search
+    catalog would build this row", rather than a second opinion that can drift
+    from what :func:`get_providers_from_store` does.
+    """
+    engine = ENGINE_PROVIDERS.get(row.get("provider") or "")
+    if engine is None:
+        return None
+    return engine.from_row(row)
+
+
 def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
     """Build one provider per classified course row.
 

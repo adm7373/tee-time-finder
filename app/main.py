@@ -14,7 +14,12 @@ from .config import get_settings
 from .discovery import CourseStore
 from .geo import GeocodeStore, Geocoder
 from .models import SearchRequest, TeeTimeOption
-from .providers import search_all
+from .providers import (
+    ENGINE_PROVIDERS,
+    TERMINAL_LABELS,
+    provider_for_row,
+    search_all,
+)
 from mangum import Mangum
 
 settings = get_settings()
@@ -96,9 +101,25 @@ def run_step(
     return trigger(step)
 
 
+def _not_searchable_reason(label: str, engine) -> str:
+    """Why a row is not searchable, in the terms an admin can act on."""
+    if engine is None:
+        if label in ("", "unknown"):
+            return "not classified: no booking engine identified yet"
+        if label in TERMINAL_LABELS:
+            return f"terminal verdict: {label} is never searched"
+        return f"no adapter for {label} yet"
+    return f"row is missing the ids the {label} adapter needs"
+
+
 @app.get("/admin/courses")
 def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
-    """List all courses in DynamoDB with metrics. Admin-only."""
+    """List all courses in DynamoDB with metrics. Admin-only.
+
+    Each course carries ``searchable`` and, when it is not, the reason: the
+    admin page uses the same ``provider_for_row`` the search catalog does, so a
+    green badge means a non-admin search would actually use the row.
+    """
     store = _course_store()
     raw_rows = store.scan()
     courses = [r for r in raw_rows if r.get("pk", "").startswith("course#")]
@@ -112,10 +133,23 @@ def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
     last_sweep = last_sweep_meta.get("value") if last_sweep_meta else None
 
     clean_courses = []
+    searchable_count = 0
     for c in courses:
         item = dict(c)
         if "distance_from_zip" in item and hasattr(item["distance_from_zip"], "__float__"):
             item["distance_from_zip"] = float(item["distance_from_zip"])
+        label = item.get("provider") or "unknown"
+        engine = ENGINE_PROVIDERS.get(label)
+        try:
+            provider = provider_for_row(item)
+        except Exception:  # a broken row must not break the whole page
+            provider = None
+        item["searchable"] = provider is not None
+        item["searchable_reason"] = (
+            "" if provider is not None else _not_searchable_reason(label, engine)
+        )
+        if provider is not None:
+            searchable_count += 1
         clean_courses.append(item)
 
     clean_courses.sort(
@@ -133,6 +167,7 @@ def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
                 v for k, v in by_provider.items() if k not in ("teeitup", "teeitup-confirmed", "unknown")
             ),
             "unknown": by_provider.get("unknown", 0),
+            "searchable": searchable_count,
             "by_provider": by_provider,
             "last_sweep": last_sweep,
         },

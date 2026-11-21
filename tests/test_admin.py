@@ -199,6 +199,10 @@ def test_list_courses_returns_metrics_and_courses(client, monkeypatch):
     assert data["metrics"]["last_sweep"] == "2026-11-20T12:00:00Z"
     assert len(data["courses"]) == 2
     assert data["courses"][0]["name"] == "Presidents Golf Course"
+    # The row is labelled teeitup but carries no id, so search skips it.
+    assert data["metrics"]["searchable"] == 0
+    assert data["courses"][0]["searchable"] is False
+    assert "ids the teeitup adapter needs" in data["courses"][0]["searchable_reason"]
 
 
 def test_delete_course_requires_admin():
@@ -228,3 +232,63 @@ def test_delete_course_removes_from_store(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["deleted"] is True
     assert "course#presidents" not in store._items
+
+
+@pytest.mark.parametrize(
+    "row, searchable, reason",
+    [
+        (
+            {
+                "pk": "course#ready",
+                "provider": "teeitup-confirmed",
+                "facility_id": "5720",
+                "x_be_alias": "norwood-country-club",
+            },
+            True,
+            "",
+        ),
+        (
+            {
+                "pk": "course#foreup",
+                "provider": "foreup",
+                "foreup_course_id": "19865",
+                "foreup_schedule_id": "2748",
+            },
+            True,
+            "",
+        ),
+        (
+            {"pk": "course#noids", "provider": "foreup", "foreup_course_id": "19969"},
+            False,
+            "ids the foreup adapter needs",
+        ),
+        (
+            {"pk": "course#unknown", "provider": "unknown"},
+            False,
+            "not classified",
+        ),
+        (
+            {"pk": "course#members", "provider": "members-only"},
+            False,
+            "terminal verdict",
+        ),
+        (
+            {"pk": "course#cps", "provider": "cps-golf", "cps_site": "peabody"},
+            False,
+            "no adapter for cps-golf",
+        ),
+    ],
+)
+def test_admin_says_whether_a_course_is_searchable(
+    client, monkeypatch, row, searchable, reason
+):
+    """The badge mirrors the search catalog, so green means a search uses the row."""
+    store = _InMemoryCourseStore([row, {"pk": "meta#last_sweep", "value": "x"}])
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+
+    data = client.get("/admin/courses").json()
+
+    course = data["courses"][0]
+    assert course["searchable"] is searchable
+    assert reason in course["searchable_reason"]
+    assert data["metrics"]["searchable"] == (1 if searchable else 0)
