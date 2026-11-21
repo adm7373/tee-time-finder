@@ -29,13 +29,15 @@ STEPS: dict[str, dict[str, Any]] = {
         "function": "discover",
         "payload": {"force_sweep": True},
         "label": "Discovery sweep",
-        "detail": "Sweeps OpenStreetMap for courses near the configured ZIP.",
+        "detail": "Sweeps OpenStreetMap for courses near the configured ZIP. "
+        "Hidden courses are skipped rather than re-added.",
     },
     "fingerprint": {
         "function": "fingerprint",
         "payload": {"limit": 10},
         "label": "Fingerprint batch",
-        "detail": "Fetches up to 10 unclassified course sites to find their booking engine.",
+        "detail": "Fetches up to 10 unclassified course sites to find their booking "
+        "engine. Hidden courses are skipped.",
     },
 }
 

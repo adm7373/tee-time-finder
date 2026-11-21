@@ -48,6 +48,9 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
     That means reading every unclassified row rather than stopping as soon as
     the batch is full; ``Limit`` bounds items read before ``FilterExpression``
     runs, so pages are fixed-size and paging continues to the end of the table.
+
+    Hidden rows are dropped here: an admin hid the course, so it must stop
+    taking checks from the courses that are still candidates.
     """
     courses: list[dict] = []
     start_key = None
@@ -65,7 +68,9 @@ def _unfingerprinted(table, limit: int) -> list[dict]:
         except Exception as error:
             logger.warning("courses scan failed: %s", error)
             break
-        courses.extend(page.get("Items", []))
+        courses.extend(
+            row for row in page.get("Items", []) if not row.get("hidden")
+        )
         start_key = page.get("LastEvaluatedKey")
         if not start_key:
             break

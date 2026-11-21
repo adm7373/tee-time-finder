@@ -392,7 +392,7 @@
             <div>
               <h3 class="text-sm font-bold text-stone-900">Course Inventory</h3>
               <p class="text-xs text-stone-500 mt-0.5">
-                Showing <span class="font-semibold" x-text="filteredCourses().length"></span> of <span class="font-semibold" x-text="adminCourses.length"></span> registered courses
+                Showing <span class="font-semibold" x-text="filteredCourses().length"></span> of <span class="font-semibold" x-text="adminCourses.length"></span> rows
                 <span class="text-stone-400" x-text="' · ' + (adminMetrics.searchable || 0) + ' searchable'"></span>
               </p>
             </div>
@@ -433,7 +433,7 @@
               </thead>
               <tbody class="divide-y divide-stone-100">
                 <template x-for="course in filteredCourses()" :key="course.pk">
-                  <tr class="hover:bg-stone-50 transition">
+                  <tr class="hover:bg-stone-50 transition" :class="course.hidden ? 'opacity-60' : ''">
                     <td class="py-3 px-4 font-medium text-stone-900">
                       <div x-text="course.name"></div>
                       <div class="text-[10px] text-stone-400 font-mono mt-0.5" x-text="course.pk"></div>
@@ -451,13 +451,20 @@
                     </td>
                     <td class="py-3 px-3 whitespace-nowrap">
                       <span
+                        x-show="!course.hidden"
                         :class="course.searchable
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                           : 'bg-stone-100 text-stone-600 border-stone-300'"
                         class="px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block"
                         x-text="course.searchable ? 'Searchable' : 'Not searchable'"
                       ></span>
+                      <span
+                        x-show="course.hidden"
+                        class="px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block bg-stone-200 text-stone-600 border-stone-400"
+                        title="Hidden from search, discovery and fingerprinting"
+                      >Hidden</span>
                       <div
+                        x-show="!course.hidden"
                         class="text-[10px] text-stone-400 mt-0.5 max-w-[150px] truncate"
                         :title="course.searchable_reason || ''"
                         x-text="course.searchable ? '' : (course.searchable_reason || '')"
@@ -474,6 +481,15 @@
                       <span x-text="course.lat && course.lon ? Number(course.lat).toFixed(4) + ', ' + Number(course.lon).toFixed(4) : '—'"></span>
                     </td>
                     <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        @click="setHidden(course.pk, course.name, !course.hidden)"
+                        :disabled="hidingSlug === course.pk"
+                        class="text-stone-600 hover:text-stone-900 font-semibold text-xs transition disabled:opacity-50 mr-3"
+                        :title="course.hidden ? 'Unhide Course' : 'Hide Course'"
+                      >
+                        <span x-text="hidingSlug === course.pk ? '...' : (course.hidden ? 'Unhide' : 'Hide')"></span>
+                      </button>
                       <button 
                         type="button"
                         @click="deleteCourse(course.pk, course.name)" 
@@ -520,6 +536,7 @@
         courseSearch: '',
         courseProviderFilter: 'all',
         deletingSlug: null,
+        hidingSlug: null,
         errorMessage: '',
         isSearching: false,
         hasSearched: false,
@@ -668,6 +685,38 @@
             this.adminAlert = 'Error deleting course: ' + e.message;
           } finally {
             this.deletingSlug = null;
+          }
+        },
+
+        async setHidden(slug, name, hidden) {
+          const question = hidden
+            ? `Hide ${name}? It will leave search, discovery and the fingerprint queue.`
+            : `Unhide ${name}? It becomes searchable and fingerprintable again.`;
+          if (!confirm(question)) return;
+          this.hidingSlug = slug;
+          try {
+            const resp = await fetch(
+              '/admin/courses/' + encodeURIComponent(slug),
+              {
+                method: 'PATCH',
+                headers: {
+                  'authorization': 'Bearer ' + this.token,
+                  'content-type': 'application/json'
+                },
+                body: JSON.stringify({ hidden })
+              }
+            );
+            if (resp.ok) {
+              this.adminAlert = hidden ? `Hid ${name}.` : `Unhid ${name}.`;
+              await this.loadAdminCourses();
+            } else {
+              const data = await resp.json().catch(() => ({}));
+              this.adminAlert = 'Failed to update course: ' + (data.detail || resp.status);
+            }
+          } catch (e) {
+            this.adminAlert = 'Error updating course: ' + e.message;
+          } finally {
+            this.hidingSlug = null;
           }
         },
 

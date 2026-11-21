@@ -84,7 +84,10 @@ def is_exhausted(row: dict | None) -> bool:
 
 
 def needs_probe(row: dict | None) -> bool:
-    """A row worth probing: not classified, and attempts left."""
+    """A row worth probing: visible, not classified, and attempts left."""
+    if not row or row.get("hidden"):
+        # An admin hid this course: it must not take attempts from the backlog.
+        return False
     return not is_classified(row) and not is_exhausted(row)
 
 
@@ -216,6 +219,29 @@ class CourseStore:
             logger.warning("course delete failed for %s: %s", slug, error)
             return False
 
+    def set_hidden(self, slug: str, hidden: bool) -> bool:
+        """Hide a course from search and both queues, keeping its row.
+
+        The row stays so the seed cannot bring the course back: a sweep adds any
+        place Nominatim returns that has no row, so deleting one only lasts
+        until the next sweep over that ZIP. ``hidden`` is what makes removal
+        stick, and it is reversible.
+        """
+        if self._table is None:
+            return False
+        try:
+            pk = slug if slug.startswith("course#") else f"course#{self.slug(slug)}"
+            self._table.update_item(
+                Key={"pk": pk},
+                UpdateExpression="SET #h = :h",
+                ExpressionAttributeNames={"#h": "hidden"},
+                ExpressionAttributeValues={":h": hidden},
+            )
+            return True
+        except Exception as error:
+            logger.warning("course hide failed for %s: %s", slug, error)
+            return False
+
 
 def _probe(
     row: dict,
@@ -314,9 +340,10 @@ def _sweep(
             continue
         existing = store.get(place.name)
         if existing is not None:
-            # Already recorded. Its classification is the backlog pass's
-            # business, not this one's; a sweep only adds what is missing.
-            if is_classified(existing):
+            # Already recorded, so a sweep never adds it again -- not even one an
+            # admin hid, which is what makes hiding stick. A hidden row is not
+            # "known" either: it is not a course the sweep still recognises.
+            if not existing.get("hidden"):
                 result.known += 1
             continue
 
@@ -368,6 +395,9 @@ def _backlog(
     over successive runs instead of returning to the same nearest ten. Each
     row's attempt count is incremented and written back even when nothing
     resolved, which is what gives a hopeless course a finite number of tries.
+
+    Hidden rows are not candidates at all (``needs_probe`` refuses them), so a
+    hidden course cannot spend an attempt or take a slot in the budget.
     """
     rows = [row for row in store.scan() if row.get("pk", "").startswith("course#")]
     candidates = [row for row in rows if needs_probe(row)]

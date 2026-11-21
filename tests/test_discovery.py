@@ -698,3 +698,85 @@ def test_a_lightspeed_chronogolf_site_is_not_a_teeitup_widget(monkeypatch):
     verdict = fp.fingerprint(_course(website="https://www.sassamontrace.com/"))
 
     assert verdict.provider == "chronogolf"
+
+
+def test_a_hidden_row_is_not_created_again_by_a_sweep():
+    """Hiding is meant to stick: the seed must leave the row alone, not re-add it."""
+    geocoder, store, geocode_store = _stores([_place()])
+    store.put(
+        {
+            "pk": "course#near-cc",
+            "name": "Near CC",
+            "provider": "unknown",
+            "hidden": True,
+        }
+    )
+
+    result = discover(
+        "02169",
+        25.0,
+        store=store,
+        geocode_store=geocode_store,
+        geocoder=geocoder,
+        configured_facility_ids=set(),
+    )
+
+    assert result.added == 0
+    assert store.get("Near CC")["hidden"] is True
+    assert store.get("Near CC")["provider"] == "unknown"
+    # Not counted as ``known`` either: the sweep did not recognise this course.
+    assert result.known == 0
+
+
+def test_the_fingerprint_queue_skips_hidden_rows():
+    from app.fingerprint_handler import _unfingerprinted
+
+    table = FakeTable()
+    table.items["course#hidden"] = {
+        "pk": "course#hidden",
+        "provider": "unknown",
+        "hidden": True,
+    }
+    table.items["course#visible"] = {"pk": "course#visible", "provider": "unknown"}
+
+    batch = _unfingerprinted(table, 5)
+
+    assert [row["pk"] for row in batch] == ["course#visible"]
+
+
+def test_a_hidden_row_is_never_selected_for_the_backlog(monkeypatch):
+    """A hidden course must not spend an attempt or take a probe slot."""
+    from app.discovery import _backlog, attempts_for
+
+    probed: list[str] = []
+
+    def fake_probe(row, configured_facility_ids, check_date, geocode_store=None):
+        probed.append(row["pk"])
+        return "none"
+
+    monkeypatch.setattr("app.discovery._probe", fake_probe)
+    geocoder, store, geocode_store = _stores([])
+    store.put(
+        {
+            "pk": "course#pitch-and-putt",
+            "name": "Pitch and Putt",
+            "provider": "unknown",
+            "hidden": True,
+            "discovery_attempts": 0,
+        }
+    )
+    store.put(
+        {
+            "pk": "course#real",
+            "name": "Real GC",
+            "provider": "unknown",
+            "discovery_attempts": 0,
+        }
+    )
+    result = DiscoveryResult(run_id="run")
+
+    _backlog(result, store, set(), geocode_store=geocode_store)
+
+    assert probed == ["course#real"]
+    assert result.probed == 1
+    assert attempts_for(store.get("Pitch and Putt")) == 0

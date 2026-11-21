@@ -928,6 +928,9 @@ def provider_coverage(rows: list[dict]) -> dict[str, int]:
     for row in rows:
         if not str(row.get("pk", "")).startswith("course#"):
             continue
+        if row.get("hidden"):
+            # An admin hid this course; it is not a coverage gap to close.
+            continue
         label = row.get("provider") or "<missing>"
         if label in ENGINE_PROVIDERS or label in TERMINAL_LABELS:
             continue
@@ -960,6 +963,8 @@ def get_providers_from_store(store: "CourseStore") -> list[SearchProvider]:
     providers: list[SearchProvider] = []
     seen: set[str] = set()
     for row in rows:
+        if row.get("hidden"):
+            continue
         label = row.get("provider") or ""
         engine = ENGINE_PROVIDERS.get(label)
         if engine is None:

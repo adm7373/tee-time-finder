@@ -155,6 +155,19 @@ class _InMemoryCourseStore:
             return True
         return True
 
+    def update_item(  # noqa: N803 - mirrors boto3's signature
+        self, Key, UpdateExpression, ExpressionAttributeNames, ExpressionAttributeValues
+    ):
+        pk = Key["pk"]
+        item = self._items.setdefault(pk, {"pk": pk})
+        assert UpdateExpression == "SET #h = :h"
+        item[ExpressionAttributeNames["#h"]] = ExpressionAttributeValues[":h"]
+
+    def set_hidden(self, slug, hidden):
+        pk = slug if slug.startswith("course#") else f"course#{slug}"
+        self._items.setdefault(pk, {"pk": pk})["hidden"] = hidden
+        return True
+
 
 def test_list_courses_requires_admin():
     from app.auth import require_user
@@ -292,3 +305,68 @@ def test_admin_says_whether_a_course_is_searchable(
     assert course["searchable"] is searchable
     assert reason in course["searchable_reason"]
     assert data["metrics"]["searchable"] == (1 if searchable else 0)
+
+
+def test_hidden_courses_are_listed_but_not_counted(client, monkeypatch):
+    """Hiding removes a row from the metrics without losing the way back."""
+    store = _InMemoryCourseStore(
+        [
+            {
+                "pk": "course#pitch-and-putt",
+                "name": "Pitch and Putt",
+                "provider": "unknown",
+                "hidden": True,
+            },
+            {
+                "pk": "course#presidents",
+                "name": "Presidents Golf Course",
+                "provider": "teeitup",
+            },
+            {"pk": "meta#last_sweep", "value": "x"},
+        ]
+    )
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+
+    data = client.get("/admin/courses").json()
+
+    assert data["metrics"]["total"] == 1
+    assert data["metrics"]["unknown"] == 0
+    # Still listed, flagged, and sorted after the visible rows so Unhide exists.
+    assert data["courses"][-1]["name"] == "Pitch and Putt"
+    assert data["courses"][-1]["hidden"] is True
+    assert data["courses"][0]["hidden"] is False
+
+
+def test_hiding_a_course_requires_admin():
+    from app.auth import require_user
+
+    app.dependency_overrides[require_user] = lambda: {"cognito:groups": ["users"]}
+    try:
+        response = TestClient(app).patch(
+            "/admin/courses/presidents", json={"hidden": True}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 403
+
+
+def test_hide_course_sets_and_clears_the_flag(client, monkeypatch):
+    store = _InMemoryCourseStore(
+        [
+            {
+                "pk": "course#pitch-and-putt",
+                "name": "Pitch and Putt",
+                "provider": "unknown",
+            }
+        ]
+    )
+    monkeypatch.setattr("app.main._course_store", lambda: store)
+
+    response = client.patch("/admin/courses/pitch-and-putt", json={"hidden": True})
+    assert response.status_code == 200
+    assert response.json() == {"hidden": True, "slug": "pitch-and-putt"}
+    assert store._items["course#pitch-and-putt"]["hidden"] is True
+
+    response = client.patch("/admin/courses/pitch-and-putt", json={"hidden": False})
+    assert response.status_code == 200
+    assert store._items["course#pitch-and-putt"]["hidden"] is False

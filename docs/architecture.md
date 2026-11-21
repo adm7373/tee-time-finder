@@ -69,6 +69,8 @@ Both workers write `tee-time-finder-courses` (`infra/courses.tf`). A row is clas
 
 A fingerprint may label a course `golfnow` so discovery stops probing it. Search still does not call GolfNow.
 
+An admin can hide a course (`hidden: true`, set from `/admin/courses`). The row is kept, because a sweep adds any place Nominatim returns that has no row and would otherwise recreate it: the seed leaves a hidden row alone without counting it as `known`, `needs_probe` refuses it so the discovery backlog never spends an attempt on it, the fingerprint queue skips it, and the search catalog and admin metrics exclude it. Unhiding is the same field set back to `false`.
+
 ## Data and cost
 
 Both DynamoDB tables are on-demand, keyed by `pk`:

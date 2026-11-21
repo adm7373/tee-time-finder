@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from urllib.parse import urlencode
 from urllib.request import HTTPError, Request, urlopen
 import json
@@ -119,49 +120,54 @@ def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
     Each course carries ``searchable`` and, when it is not, the reason: the
     admin page uses the same ``provider_for_row`` the search catalog does, so a
     green badge means a non-admin search would actually use the row.
+
+    Hidden rows are still listed, flagged, so they can be unhidden, but they are
+    left out of the metrics: hiding means the course stops counting as one the
+    app should be searching or classifying.
     """
     store = _course_store()
-    raw_rows = store.scan()
-    courses = [r for r in raw_rows if r.get("pk", "").startswith("course#")]
+    rows = [r for r in store.scan() if r.get("pk", "").startswith("course#")]
 
     by_provider: dict[str, int] = {}
-    for c in courses:
-        p = c.get("provider") or "unknown"
-        by_provider[p] = by_provider.get(p, 0) + 1
-
-    last_sweep_meta = store.meta("last_sweep")
-    last_sweep = last_sweep_meta.get("value") if last_sweep_meta else None
-
-    clean_courses = []
     searchable_count = 0
-    for c in courses:
-        item = dict(c)
+    courses = []
+    for row in rows:
+        item = dict(row)
         if "distance_from_zip" in item and hasattr(item["distance_from_zip"], "__float__"):
             item["distance_from_zip"] = float(item["distance_from_zip"])
         label = item.get("provider") or "unknown"
         engine = ENGINE_PROVIDERS.get(label)
+        item["hidden"] = bool(item.get("hidden"))
         try:
-            provider = provider_for_row(item)
+            provider = None if item["hidden"] else provider_for_row(item)
         except Exception:  # a broken row must not break the whole page
             provider = None
         item["searchable"] = provider is not None
+        if item["hidden"]:
+            item["searchable_reason"] = "hidden"
+            courses.append(item)
+            continue
         item["searchable_reason"] = (
             "" if provider is not None else _not_searchable_reason(label, engine)
         )
+        by_provider[label] = by_provider.get(label, 0) + 1
         if provider is not None:
             searchable_count += 1
-        clean_courses.append(item)
+        courses.append(item)
 
-    clean_courses.sort(
+    courses.sort(
         key=lambda x: (
+            x["hidden"],
             x.get("distance_from_zip") if x.get("distance_from_zip") is not None else 999,
             x.get("name", ""),
         )
     )
 
+    last_sweep_meta = store.meta("last_sweep")
+
     return {
         "metrics": {
-            "total": len(clean_courses),
+            "total": sum(by_provider.values()),
             "teeitup": by_provider.get("teeitup", 0) + by_provider.get("teeitup-confirmed", 0),
             "other": sum(
                 v for k, v in by_provider.items() if k not in ("teeitup", "teeitup-confirmed", "unknown")
@@ -169,10 +175,30 @@ def list_courses(user: dict = Depends(require_admin)) -> dict[str, object]:
             "unknown": by_provider.get("unknown", 0),
             "searchable": searchable_count,
             "by_provider": by_provider,
-            "last_sweep": last_sweep,
+            "last_sweep": last_sweep_meta.get("value") if last_sweep_meta else None,
         },
-        "courses": clean_courses,
+        "courses": courses,
     }
+
+
+class CourseUpdate(BaseModel):
+    """The row fields an admin may change from the page."""
+
+    hidden: bool
+
+
+@app.patch("/admin/courses/{slug}")
+def update_course(
+    slug: str, body: CourseUpdate, user: dict = Depends(require_admin)
+) -> dict[str, object]:
+    """Hide or unhide a course. Admin-only.
+
+    Hiding keeps the row, which is what stops the next discovery sweep from
+    recreating the place; a deleted row comes back.
+    """
+    if not _course_store().set_hidden(slug, body.hidden):
+        raise HTTPException(status_code=500, detail="Failed to update course")
+    return {"hidden": body.hidden, "slug": slug}
 
 
 @app.delete("/admin/courses/{slug}")

@@ -1058,3 +1058,31 @@ def test_teeitup_uses_the_course_name_not_the_geocoded_address(monkeypatch):
     assert provider.name == "Olde Scotland Links"
     assert [option.course_name for option in options] == ["Olde Scotland Links"]
     assert [option.provider for option in options] == ["Olde Scotland Links"]
+
+
+def test_hidden_rows_build_no_provider_and_are_not_a_coverage_gap():
+    rows = [
+        {
+            "pk": "course#hidden",
+            "provider": "teeitup-confirmed",
+            "facility_id": "1",
+            "x_be_alias": "hidden-club",
+            "hidden": True,
+        },
+        {
+            "pk": "course#visible",
+            "provider": "teeitup-confirmed",
+            "facility_id": "2",
+            "x_be_alias": "visible-club",
+        },
+        {"pk": "course#pitch", "provider": "unknown", "hidden": True},
+    ]
+
+    class Store:
+        def scan(self):
+            return rows
+
+    providers = get_providers_from_store(Store())
+
+    assert [provider.name for provider in providers] == ["visible-club"]
+    assert provider_coverage(rows) == {}
