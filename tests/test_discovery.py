@@ -255,6 +255,12 @@ def test_foreup_ids_ignore_links_that_are_not_booking_pages():
     assert fp.foreup_ids("") == {}
 
 
+def test_foreup_ids_keep_a_lone_course_id():
+    """Ould Newbury's link names the course but not the schedule."""
+    ids = fp.foreup_ids("https://foreupsoftware.com/index.php/booking/19969#/teetimes")
+    assert ids == {"foreup_course_id": "19969"}
+
+
 def test_fingerprint_records_the_booking_link_it_found(monkeypatch):
     site = (
         '<a href="https://foreupsoftware.com/index.php/booking/19865/2748">'

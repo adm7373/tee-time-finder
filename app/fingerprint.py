@@ -161,10 +161,10 @@ def _other_provider_link(body: str, base: str, provider: str) -> str:
     return ""
 
 
-#: foreup booking pages put both ids the API needs in the path:
-#: ``/index.php/booking/<course_id>/<schedule_id>``.
+#: foreup booking pages put the ids the API needs in the path:
+#: ``/index.php/booking/<course_id>``, sometimes followed by ``/<schedule_id>``.
 FOREUP_BOOKING_RE = re.compile(
-    r"foreupsoftware\.com/index\.php/booking/(?P<course>\d+)/(?P<schedule>\d+)",
+    r"foreupsoftware\.com/index\.php/booking/(?P<course>\d+)(?:/(?P<schedule>\d+))?",
     re.I,
 )
 
@@ -172,17 +172,19 @@ FOREUP_BOOKING_RE = re.compile(
 def foreup_ids(link: str) -> dict[str, str]:
     """The foreup ids a booking link carries, as course-row fields.
 
-    The fingerprint records the link it followed; the adapter needs the two ids
-    in it, and reading them from the row is cheaper than fetching the booking
-    page on every search. Empty when the link is not a foreup booking page.
+    The fingerprint records the link it followed; reading the ids from the row
+    is cheaper than fetching the booking page on every search. A link may name
+    only the course (``/booking/19969``), so the course id is returned on its
+    own then; only the pair is enough to query the times API. Empty when the
+    link is not a foreup booking page.
     """
     match = FOREUP_BOOKING_RE.search(link or "")
     if not match:
         return {}
-    return {
-        "foreup_course_id": match.group("course"),
-        "foreup_schedule_id": match.group("schedule"),
-    }
+    ids = {"foreup_course_id": match.group("course")}
+    if match.group("schedule"):
+        ids["foreup_schedule_id"] = match.group("schedule")
+    return ids
 
 
 def _booking_links(body: str, base: str) -> list[str]:

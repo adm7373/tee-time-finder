@@ -364,3 +364,19 @@ def test_foreup_from_row_reads_the_ids_the_fingerprint_stored():
     url = provider.availability_url(SearchRequest(date=date(2026, 5, 14), players=2))
     assert "date=05-14-2026" in url
     assert "schedule_id=2748" in url
+
+
+def test_foreup_from_row_needs_both_ids():
+    """One id cannot ask for tee times: the API rejects a course id as schedule."""
+    only_course = {
+        "pk": "course#ould-newbury-golf-club",
+        "provider": "foreup",
+        "foreup_course_id": "19969",
+    }
+    only_schedule = {
+        "pk": "course#half",
+        "provider": "foreup",
+        "foreup_schedule_id": "2748",
+    }
+    assert ForeUpProvider.from_row(only_course) is None
+    assert ForeUpProvider.from_row(only_schedule) is None

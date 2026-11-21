@@ -390,7 +390,14 @@ class ForeUpProvider(BookingEngineProvider):
 
     @classmethod
     def from_row(cls, row: dict) -> "ForeUpProvider | None":
-        """Build a provider from the ids the fingerprint stored on the row."""
+        """Build a provider from the ids the fingerprint stored on the row.
+
+        Both are required. Some links name only the course (``/booking/19969``),
+        and the times API answers ``false`` when a course id is sent as the
+        schedule, or when the schedule is missing: one id cannot ask for tee
+        times, so such a row keeps its course id but builds no provider until
+        the schedule is learned.
+        """
         course_id = str(row.get("foreup_course_id") or "")
         schedule_id = str(row.get("foreup_schedule_id") or "")
         if not (course_id and schedule_id):
