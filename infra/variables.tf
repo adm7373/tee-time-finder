@@ -22,6 +22,12 @@ variable "monthly_budget_usd" {
   default     = 5
 }
 
+variable "frontend_url" {
+  description = "Public origin of the Cloudflare Pages front door. Empty serves and signs in on the API URL itself."
+  type        = string
+  default     = "https://tee-time-finder.pages.dev"
+}
+
 variable "budget_action_threshold_percent" {
   description = "Percentage of the budget at which the stop-workers action fires."
   type        = number

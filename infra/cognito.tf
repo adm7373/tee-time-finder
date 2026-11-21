@@ -29,8 +29,8 @@ resource "aws_cognito_user_pool_client" "web" {
   # Must match the redirect URI the Lambda sends to /oauth2/token exactly, or
   # Cognito answers with error=redirect_mismatch. Both sides read the same
   # local, defined in lambda.tf, so they cannot drift apart.
-  callback_urls = [local.cognito_callback_url]
-  logout_urls   = [local.cognito_callback_url]
+  callback_urls = local.cognito_callback_urls
+  logout_urls   = local.cognito_callback_urls
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",

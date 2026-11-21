@@ -57,7 +57,7 @@ resource "aws_lambda_function" "api" {
       COGNITO_APP_CLIENT_ID = aws_cognito_user_pool_client.web.id
       # The hosted UI is a different host from the API: /oauth2/token lives
       # there, while the API endpoint is the app itself.
-      BASE_URL             = aws_apigatewayv2_api.http.api_endpoint
+      BASE_URL             = local.app_origin
       COGNITO_DOMAIN_URL   = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
       COGNITO_REDIRECT_URI = local.cognito_callback_url
       # Where cached ZIP and course coordinates live; see infra/geocode.tf.
@@ -123,10 +123,24 @@ resource "aws_apigatewayv2_api" "http" {
 }
 
 locals {
+  api_origin = trimsuffix(aws_apigatewayv2_api.http.api_endpoint, "/")
+  # The origin the browser actually uses: the Pages front door when one is
+  # configured, otherwise the API's own endpoint. It decides where Cognito sends
+  # the browser back to, and the redirect URI the token exchange repeats.
+  app_origin = (
+    var.frontend_url == "" ? local.api_origin : trimsuffix(var.frontend_url, "/")
+  )
+
   # Single source of truth for the OAuth callback: it is both the app client's
   # registered callback_url and the redirect URI the Lambda sends to the token
   # endpoint. If these drift apart Cognito answers error=redirect_mismatch.
-  cognito_callback_url = "${trimsuffix(aws_apigatewayv2_api.http.api_endpoint, "/")}/"
+  cognito_callback_url = "${local.app_origin}/"
+  # Both origins stay registered, so the API URL keeps signing in while the
+  # front door is being set up, and anyone on the old URL still lands signed in.
+  cognito_callback_urls = distinct([
+    local.cognito_callback_url,
+    "${local.api_origin}/",
+  ])
 }
 
 resource "aws_apigatewayv2_authorizer" "cognito" {

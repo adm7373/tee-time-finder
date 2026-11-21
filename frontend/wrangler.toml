@@ -1,0 +1,3 @@
+name = "tee-time-finder"
+pages_build_output_dir = "public"
+compatibility_date = "2026-11-01"

@@ -31,3 +31,6 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Cloudflare Pages dev cache
+frontend/.wrangler/
